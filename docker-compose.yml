@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - '${PORT:-3000}:${PORT:-3000}'
+    env_file:
+      - .env
+    depends_on:
+      - rabbitmq
+    networks:
+      - nest-network
+
+  rabbitmq:
+    image: rabbitmq:3.9-management-alpine
+    ports:
+      - '5672:5672' # For application connection
+      - '15672:15672' # For management UI
+    networks:
+      - nest-network
+
+networks:
+  nest-network:
+    driver: bridge
