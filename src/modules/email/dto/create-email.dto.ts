@@ -1,5 +1,5 @@
 import { IsEmail, IsNotEmpty, IsString, IsEnum, IsDateString } from 'class-validator';
-import { EmailType } from '../email-type.enum';
+import { EmailType } from '../../../common/enums/email-type.enum';
 
 export class CreateEmailDto {
   @IsString()

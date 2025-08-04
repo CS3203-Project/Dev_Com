@@ -3,7 +3,7 @@ import {
   PrimaryGeneratedColumn,
   Column,
 } from 'typeorm';
-import { EmailType } from './email-type.enum';
+import { EmailType } from '../../../common/enums/email-type.enum';
 
 @Entity('email_queue')
 export class EmailQueue {
