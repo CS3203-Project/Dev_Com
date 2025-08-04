@@ -15,6 +15,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { EmailModule } from './modules/email/email.module';
+import { MessegingModule } from './modules/messeging/messeging.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { EmailModule } from './modules/email/email.module';
       }),
     }),
     EmailModule,
+    MessegingModule,
   ],
   controllers: [AppController],
   providers: [AppService],
