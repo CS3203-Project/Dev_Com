@@ -12,8 +12,8 @@ import { MessageService } from './message.service';
 
 interface OnlineUser {
   userId: string;
-  socketId: string;
   name: string;
+  socket: Socket;
 }
 
 @WebSocketGateway({
@@ -34,9 +34,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     console.log(`Socket connected: ${client.id}`);
     // Wait for client to send 'register_user' event with userId and name
     client.on('register_user', (data: { userId: string; name: string }) => {
-      console.log(`User registered: userId=${data.userId}, name=${data.name}, socketId=${client.id}`);
+      console.log(`User registered: userId=${data.userId}, name=${data.name}`);
       if (!this.onlineUsers.find(u => u.userId === data.userId)) {
-        this.onlineUsers.push({ userId: data.userId, socketId: client.id, name: data.name });
+        this.onlineUsers.push({ userId: data.userId, name: data.name, socket: client });
         this.broadcastOnlineUsers();
       }
     });
@@ -44,14 +44,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   handleDisconnect(client: Socket) {
     console.log(`Socket disconnected: ${client.id}`);
-    this.onlineUsers = this.onlineUsers.filter(u => u.socketId !== client.id);
+    this.onlineUsers = this.onlineUsers.filter(u => u.socket.id !== client.id);
     this.broadcastOnlineUsers();
   }
 
   @SubscribeMessage('get_online_users')
   handleGetOnlineUsers(@ConnectedSocket() client: Socket) {
     console.log(`Sending online users to socket: ${client.id}`);
-    client.emit('online_users', this.onlineUsers);
+    client.emit('online_users', this.onlineUsers.map(({ userId, name }) => ({ userId, name })));
   }
 
   @SubscribeMessage('send_message')
@@ -70,8 +70,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     const recipient = this.onlineUsers.find(u => u.userId === data.toUserId);
     if (recipient) {
-      console.log(`Delivering message to recipient socket: ${recipient.socketId}`);
-      this.server.to(recipient.socketId).emit('receive_message', {
+      console.log(`Delivering message to recipient userId: ${recipient.userId}`);
+      recipient.socket.emit('receive_message', {
         fromUserId: data.fromUserId,
         toUserId: data.toUserId,
         fromName: data.fromName,
@@ -102,6 +102,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   private broadcastOnlineUsers() {
-    this.server.emit('online_users', this.onlineUsers);
+    this.server.emit('online_users', this.onlineUsers.map(({ userId, name }) => ({ userId, name })));
   }
 }
