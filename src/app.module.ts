@@ -15,13 +15,15 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { EmailModule } from './modules/email/email.module';
-import { MessegingModule } from './modules/messeging/messeging.module';
+import { MessagingModule } from './modules/messeging/messaging.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true, // Makes the ConfigService available throughout the app
     }),
+    // TypeORM Configuration - No Auto-Migration Mode
+    // This configuration prevents TypeORM from automatically modifying the database schema
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -29,14 +31,17 @@ import { MessegingModule } from './modules/messeging/messeging.module';
         type: 'postgres',
         url: configService.get('DATABASE_URL'),
         autoLoadEntities: true,
-        synchronize: true, // In development, this syncs your entities with the DB. Disable for production.
+        synchronize: false,   // ❌ Disable automatic schema synchronization
+        migrationsRun: false, // ❌ Disable automatic migration execution
+        migrations: [],       // ❌ No migrations array (since you don't want TypeORM to handle them)
         ssl: {
           rejectUnauthorized: false, // Required for NeonDB connections
         },
+        logging: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : false, // Optional: Control logging
       }),
     }),
     EmailModule,
-    MessegingModule,
+    MessagingModule,
   ],
   controllers: [AppController],
   providers: [AppService],

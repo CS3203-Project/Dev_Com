@@ -1,22 +1,30 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
+import { Entity, PrimaryColumn, Column, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 
-@Entity()
+@Entity('Message')
 export class Message {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryColumn('uuid')
   id: string;
 
-  @Column()
-  fromUserId: string;
+  @Column({ type: 'text' })
+  content: string;
 
-  @Column()
-  toUserId: string;
+  @Column({ name: 'fromId' })
+  fromId: string;
 
-  @Column()
-  fromName: string;
+  @Column({ name: 'toId' })
+  toId: string;
 
-  @Column()
-  message: string;
+  @Column({ name: 'conversationId' })
+  conversationId: string;
 
   @CreateDateColumn()
   createdAt: Date;
+
+  @Column({ type: 'timestamp', nullable: true })
+  receivedAt: Date | null;
+
+  // Relations (using string-based relation to avoid circular imports)
+  @ManyToOne('Conversation', 'messages')
+  @JoinColumn({ name: 'conversationId' })
+  conversation: any;
 }

@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { EmailQueue } from './entities/email.entity';
 import { CreateEmailDto } from './dto/create-email.dto';
 import { MailerService } from '@nestjs-modules/mailer';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class EmailService {
@@ -22,12 +23,31 @@ export class EmailService {
       html,
     });
 
-    const newEmail = this.emailRepository.create({
-      ...createEmailDto,
-      sentAt: new Date(),
-    });
+    // Generate UUID with collision handling (extra safety)
+    let newEmail: EmailQueue;
+    let attempts = 0;
+    const maxAttempts = 3;
 
-    return this.emailRepository.save(newEmail);
+    while (attempts < maxAttempts) {
+      try {
+        newEmail = this.emailRepository.create({
+          ...createEmailDto,
+          id: randomUUID(), // Generate UUID manually
+          sentAt: new Date(),
+        });
+
+        return await this.emailRepository.save(newEmail);
+      } catch (error) {
+        // If it's a duplicate key error, retry with new UUID
+        if (error.code === '23505' && attempts < maxAttempts - 1) {
+          attempts++;
+          continue;
+        }
+        throw error; // Re-throw if it's not a duplicate or max attempts reached
+      }
+    }
+
+    throw new Error('Failed to create email after multiple attempts');
   }
 
   async findAllEmails(): Promise<EmailQueue[]> {

@@ -2,12 +2,13 @@ import {
   Entity,
   PrimaryGeneratedColumn,
   Column,
+  PrimaryColumn,
 } from 'typeorm';
 import { EmailType } from '../../../common/enums/email-type.enum';
 
 @Entity('email_queue')
 export class EmailQueue {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryColumn('uuid')
   id: string;
 
   @Column({ name: 'userId' })
