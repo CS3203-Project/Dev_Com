@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Messaging Test</title>
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .section { margin: 20px 0; padding: 20px; border: 1px solid #ddd; border-radius: 5px; }
+        input, button { margin: 5px; padding: 10px; }
+        .log { background: #f5f5f5; padding: 10px; height: 200px; overflow-y: scroll; margin: 10px 0; }
+        button { background: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 WebSocket Messaging Test</h1>
+        
+        <div class="section">
+            <h3>Connection</h3>
+            <input type="text" id="userId" placeholder="Your User ID" value="test-user-1">
+            <button onclick="connect()">Connect</button>
+            <button onclick="disconnect()">Disconnect</button>
+            <div id="status">Not connected</div>
+        </div>
+
+        <div class="section">
+            <h3>Send Message</h3>
+            <input type="text" id="fromId" placeholder="From User ID" value="test-user-1">
+            <input type="text" id="toId" placeholder="To User ID" value="test-user-2">
+            <input type="text" id="conversationId" placeholder="Conversation ID" value="test-conv-1">
+            <input type="text" id="messageContent" placeholder="Message content" value="Hello World!">
+            <button onclick="sendMessage()">Send Message</button>
+        </div>
+
+        <div class="section">
+            <h3>Event Log</h3>
+            <button onclick="clearLog()">Clear Log</button>
+            <div id="log" class="log"></div>
+        </div>
+    </div>
+
+    <script>
+        let socket = null;
+
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}<br>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function connect() {
+            const userId = document.getElementById('userId').value;
+            
+            if (socket) {
+                socket.disconnect();
+            }
+
+            socket = io('http://localhost:3001/messaging', {
+                transports: ['websocket', 'polling']
+            });
+
+            socket.on('connect', () => {
+                log('✅ Connected to WebSocket server');
+                document.getElementById('status').innerText = 'Connected';
+                
+                // Join with user ID
+                socket.emit('user:join', { userId });
+            });
+
+            socket.on('disconnect', () => {
+                log('❌ Disconnected from WebSocket server');
+                document.getElementById('status').innerText = 'Disconnected';
+            });
+
+            socket.on('user:joined', (data) => {
+                log(`👤 User joined: ${JSON.stringify(data)}`);
+            });
+
+            socket.on('message:sent', (data) => {
+                log(`📤 Message sent: ${JSON.stringify(data)}`);
+            });
+
+            socket.on('message:received', (data) => {
+                log(`📥 Message received: ${JSON.stringify(data)}`);
+            });
+
+            socket.on('message:error', (data) => {
+                log(`❌ Message error: ${JSON.stringify(data)}`);
+            });
+
+            socket.on('connect_error', (error) => {
+                log(`❌ Connection error: ${error.message}`);
+            });
+        }
+
+        function disconnect() {
+            if (socket) {
+                socket.disconnect();
+                socket = null;
+            }
+        }
+
+        function sendMessage() {
+            if (!socket) {
+                log('❌ Not connected to WebSocket server');
+                return;
+            }
+
+            const messageData = {
+                content: document.getElementById('messageContent').value,
+                fromId: document.getElementById('fromId').value,
+                toId: document.getElementById('toId').value,
+                conversationId: document.getElementById('conversationId').value
+            };
+
+            log(`📤 Sending message: ${JSON.stringify(messageData)}`);
+            socket.emit('message:send', messageData);
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+    </script>
+</body>
+</html>

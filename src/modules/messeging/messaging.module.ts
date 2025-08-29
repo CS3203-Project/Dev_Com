@@ -4,6 +4,7 @@ import { Conversation } from './entities/conversation.entity';
 import { Message } from './entities/message.entity';
 import { ConversationService, MessageService, MessagingService } from './services';
 import { MessagingController } from './messaging.controller';
+import { MessagingGateway } from './messaging.gateway';
 
 @Module({
   imports: [
@@ -13,7 +14,8 @@ import { MessagingController } from './messaging.controller';
   providers: [
     ConversationService,
     MessageService,
-    MessagingService
+    MessagingService,
+    MessagingGateway
   ],
   exports: [
     ConversationService,
