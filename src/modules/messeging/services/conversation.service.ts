@@ -22,15 +22,26 @@ export class ConversationService {
    * Create a new conversation between two participants
    */
   async createConversation(createConversationDto: CreateConversationDto): Promise<ConversationResponseDto> {
-    const { userIds, title } = createConversationDto;
+    const { userIds, title, serviceId } = createConversationDto;
 
     // Ensure exactly 2 participants
     if (userIds.length !== 2) {
       throw new BadRequestException('Conversation must have exactly 2 participants');
     }
 
-    // Check if conversation already exists between these participants
-    const existingConversation = await this.findConversationByParticipants(userIds[0], userIds[1]);
+    // Check if conversation already exists between these participants and this service
+    let existingConversation: Conversation | null = null;
+    if (serviceId) {
+      existingConversation = await this.conversationRepository.createQueryBuilder('conversation')
+        .where('conversation.serviceId = :serviceId', { serviceId })
+        .andWhere('conversation.userIds @> :userIds1 AND conversation.userIds @> :userIds2', {
+          userIds1: [userIds[0]],
+          userIds2: [userIds[1]]
+        })
+        .getOne();
+    } else {
+      existingConversation = await this.findConversationByParticipants(userIds[0], userIds[1]);
+    }
     if (existingConversation) {
       return this.mapConversationToDto(existingConversation);
     }
@@ -40,6 +51,7 @@ export class ConversationService {
     conversation.id = randomUUID();
     conversation.userIds = userIds;
     conversation.title = title || null;
+    conversation.serviceId = serviceId || null;
 
     const savedConversation = await this.conversationRepository.save(conversation);
     return this.mapConversationToDto(savedConversation);

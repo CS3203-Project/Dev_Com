@@ -11,6 +11,10 @@ export class CreateConversationDto {
   @IsOptional()
   @IsString()
   title?: string;
+
+  @IsOptional()
+  @IsString()
+  serviceId?: string;
 }
 
 //later add title for conversation

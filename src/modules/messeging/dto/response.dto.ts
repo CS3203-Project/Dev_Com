@@ -2,6 +2,7 @@ export class ConversationResponseDto {
   id: string;
   userIds: string[];
   title: string | null;
+  serviceId?: string | null;
   messages?: MessageResponseDto[];
 }
 
