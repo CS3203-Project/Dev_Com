@@ -16,6 +16,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { EmailModule } from './modules/email/email.module';
 import { MessagingModule } from './modules/messeging/messaging.module';
+import { ConfirmationModule } from './modules/confirmation/confirmation.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { MessagingModule } from './modules/messeging/messaging.module';
     }),
     EmailModule,
     MessagingModule,
+    ConfirmationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

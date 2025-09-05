@@ -21,7 +21,8 @@ import { MessagingGateway } from './messaging.gateway';
     ConversationService,
     MessageService,
     MessagingService,
-    TypeOrmModule
+    TypeOrmModule,
+    MessagingGateway
   ]
 })
 export class MessagingModule {}
