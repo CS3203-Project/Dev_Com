@@ -30,5 +30,6 @@ import { EmailQueue } from './entities/email.entity';
   ],
   controllers: [EmailController],
   providers: [EmailService],
+  exports: [EmailService],
 })
 export class EmailModule {}
