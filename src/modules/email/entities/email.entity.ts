@@ -11,8 +11,8 @@ export class EmailQueue {
   @PrimaryColumn('uuid')
   id: string;
 
-  @Column({ name: 'userId' })
-  userId: string;
+  @Column({ name: 'userId', nullable: true })
+  userId?: string;
 
   @Column()
   to: string;

@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { Message } from '../entities/message.entity';
+import { QueueService } from '../../queue/queue.service';
 import {
   CreateMessageDto,
   GetMessagesDto,
@@ -15,13 +16,14 @@ export class MessageService {
   constructor(
     @InjectRepository(Message)
     private messageRepository: Repository<Message>,
+    private queueService: QueueService,
   ) {}
 
   /**
    * Send a new message
    */
   async sendMessage(createMessageDto: CreateMessageDto): Promise<MessageResponseDto> {
-    const { content, fromId, toId, conversationId } = createMessageDto;
+    const { content, fromId, toId, conversationId, senderName, senderEmail, recipientName, recipientEmail } = createMessageDto;
 
     // Create new message
     const message = new Message();
@@ -32,6 +34,38 @@ export class MessageService {
     message.conversationId = conversationId;
 
     const savedMessage = await this.messageRepository.save(message);
+    
+    // Send email notification for new message
+    try {
+      // Check if we have real user data for email notifications
+      if (senderEmail && recipientEmail && senderName && recipientName) {
+        console.log('📧 Sending message email notification with provided user data');
+        
+        await this.queueService.sendMessageNotification({
+          senderEmail: senderEmail,
+          recipientEmail: recipientEmail,
+          senderName: senderName,
+          recipientName: recipientName,
+          conversationId: conversationId,
+          messageContent: content.length > 100 ? content.substring(0, 100) + '...' : content
+        });
+        
+        console.log(`✅ Message email notification queued for ${recipientEmail}`);
+      } else {
+        console.log('📧 Message email notification skipped - missing user data');
+        console.log('📝 Missing fields:', {
+          senderEmail: !senderEmail ? 'missing' : 'provided',
+          recipientEmail: !recipientEmail ? 'missing' : 'provided', 
+          senderName: !senderName ? 'missing' : 'provided',
+          recipientName: !recipientName ? 'missing' : 'provided'
+        });
+        console.log('💡 To enable email notifications, include senderName, senderEmail, recipientName, recipientEmail in the request');
+      }
+    } catch (emailError) {
+      console.error('❌ Failed to queue message notification:', emailError);
+      // Don't fail the message sending if email notification fails
+    }
+
     return this.mapMessageToDto(savedMessage);
   }
 

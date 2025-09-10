@@ -5,10 +5,12 @@ import { Message } from './entities/message.entity';
 import { ConversationService, MessageService, MessagingService } from './services';
 import { MessagingController } from './messaging.controller';
 import { MessagingGateway } from './messaging.gateway';
+import { QueueModule } from '../queue/queue.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Conversation, Message])
+    TypeOrmModule.forFeature([Conversation, Message]),
+    QueueModule
   ],
   controllers: [MessagingController],
   providers: [

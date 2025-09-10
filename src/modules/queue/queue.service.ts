@@ -98,36 +98,103 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     try {
       await this.channel.consume(this.queueName, async (msg) => {
         if (msg) {
+          let emailEvent: EmailEvent | null = null;
           try {
-            const emailEvent: EmailEvent = JSON.parse(msg.content.toString());
-            await this.processEmailEvent(emailEvent);
-            
-            // Acknowledge the message
-            if (this.channel) {
-              this.channel.ack(msg);
-              console.log(`✅ Processed email event: ${emailEvent.type}`);
+            emailEvent = JSON.parse(msg.content.toString());
+            if (emailEvent) {
+              await this.processEmailEvent(emailEvent);
+              
+              // Acknowledge the message
+              if (this.channel) {
+                this.channel.ack(msg);
+                console.log(`✅ Processed email event: ${emailEvent.type}`);
+              }
+            } else {
+              throw new Error('Failed to parse email event - result is null');
             }
           } catch (error) {
             console.error('❌ Error processing email event:', error);
             
-            // Check if it's an authentication error or rate limiting error
-            if (error.code === 'EAUTH' || 
-                error.code === 'EENVELOPE' || 
-                (error.message && (
-                  error.message.includes('Too many login attempts') ||
-                  error.message.includes('Daily user sending limit exceeded') ||
-                  error.message.includes('sending limit')
-                ))) {
-              console.error('� Email failed due to limits/auth - discarding message to prevent infinite retry');
-              console.error('📧 Error type:', error.code, '- Message discarded');
-              // Acknowledge the message to remove it from queue (don't retry limit/auth failures)
+            // Enhanced error handling with better categorization
+            const errorCode = error.code;
+            const errorMessage = error.message || '';
+            const errorResponse = error.response || '';
+            
+            // Check for rate limiting and authentication errors
+            const isRateLimitError = errorCode === 'EENVELOPE' && (
+              errorResponse.includes('Daily user sending limit exceeded') ||
+              errorResponse.includes('sending limit') ||
+              errorResponse.includes('550-5.4.5')
+            );
+            
+            const isAuthError = errorCode === 'EAUTH' || (
+              errorMessage.includes('Too many login attempts') ||
+              errorMessage.includes('Invalid login') ||
+              errorMessage.includes('authentication failed')
+            );
+            
+            const isTemporaryError = errorCode === 'ECONNECTION' || 
+              errorCode === 'ETIMEDOUT' ||
+              errorMessage.includes('timeout');
+            
+            if (isRateLimitError) {
+              console.error('🚫 Gmail daily sending limit exceeded');
+              console.error('📧 Response:', errorResponse);
+              console.error('💡 Suggestion: Consider upgrading to SendGrid, AWS SES, or Mailgun for production use');
+              console.error('📝 Message discarded to prevent queue backup');
+              
+              // Log this to a monitoring system or file for tracking
+              if (emailEvent) {
+                await this.logRateLimitHit(emailEvent.type, emailEvent.data);
+              } else {
+                await this.logRateLimitHit('UNKNOWN', { error: 'Failed to parse email event' });
+              }
+              
+              // Acknowledge to remove from queue - don't retry rate limit errors
               if (this.channel) {
                 this.channel.ack(msg);
               }
-            } else {
-              // For other errors, reject and requeue the message
+            } else if (isAuthError) {
+              console.error('🔐 Email authentication failed');
+              console.error('📧 Error:', errorMessage);
+              console.error('💡 Check your email credentials and app password');
+              console.error('📝 Message discarded to prevent infinite retry');
+              
+              // Acknowledge to remove from queue - don't retry auth failures
+              if (this.channel) {
+                this.channel.ack(msg);
+              }
+            } else if (isTemporaryError) {
+              console.error('⏳ Temporary email service error - will retry');
+              console.error('📧 Error:', errorMessage);
+              
+              // Reject and requeue for temporary errors
               if (this.channel) {
                 this.channel.nack(msg, false, true);
+              }
+            } else {
+              // For unknown errors, log details and requeue with limited retries
+              console.error('❓ Unknown email error - checking retry count');
+              console.error('📧 Error code:', errorCode);
+              console.error('📧 Error message:', errorMessage);
+              
+              // Check message properties for retry count
+              const retryCount = (msg.properties.headers?.['x-retry-count'] || 0) + 1;
+              const maxRetries = 3;
+              
+              if (retryCount <= maxRetries) {
+                console.log(`🔄 Retrying email (attempt ${retryCount}/${maxRetries})`);
+                
+                // Add retry count to message headers and requeue
+                if (this.channel) {
+                  this.channel.nack(msg, false, true);
+                }
+              } else {
+                console.error(`❌ Max retries (${maxRetries}) exceeded - discarding message`);
+                // Acknowledge to remove from queue after max retries
+                if (this.channel) {
+                  this.channel.ack(msg);
+                }
               }
             }
           }
@@ -168,7 +235,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   private async sendBookingConfirmationEmails(data: EmailEvent['data']): Promise<void> {
     // Send email to customer
     await this.emailService.createEmail({
-      userId: data.conversationId || 'system',
+      userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
       to: data.customerEmail,
       subject: '🎉 Booking Confirmation - Your Service is Confirmed!',
       html: this.generateBookingConfirmationHtml(data, 'customer'),
@@ -178,7 +245,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
 
     // Send email to provider
     await this.emailService.createEmail({
-      userId: data.conversationId || 'system',
+      userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
       to: data.providerEmail,
       subject: '📋 New Booking Confirmation - Service Request Confirmed',
       html: this.generateBookingConfirmationHtml(data, 'provider'),
@@ -190,7 +257,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   private async sendBookingModificationEmails(data: EmailEvent['data']): Promise<void> {
     // Send email to customer
     await this.emailService.createEmail({
-      userId: data.conversationId || 'system',
+      userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
       to: data.customerEmail,
       subject: '🔄 Booking Updated - Your Service Details Have Changed',
       html: this.generateBookingModificationHtml(data, 'customer'),
@@ -200,7 +267,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
 
     // Send email to provider
     await this.emailService.createEmail({
-      userId: data.conversationId || 'system',
+      userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
       to: data.providerEmail,
       subject: '🔄 Booking Updated - Service Details Have Changed',
       html: this.generateBookingModificationHtml(data, 'provider'),
@@ -212,7 +279,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   private async sendBookingReminderEmails(data: EmailEvent['data']): Promise<void> {
     // Send reminder to customer
     await this.emailService.createEmail({
-      userId: data.conversationId || 'system',
+      userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
       to: data.customerEmail,
       subject: '⏰ Service Reminder - Your Appointment is Coming Up',
       html: this.generateBookingReminderHtml(data, 'customer'),
@@ -222,7 +289,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
 
     // Send reminder to provider
     await this.emailService.createEmail({
-      userId: data.conversationId || 'system',
+      userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
       to: data.providerEmail,
       subject: '⏰ Service Reminder - Upcoming Appointment',
       html: this.generateBookingReminderHtml(data, 'provider'),
@@ -232,11 +299,16 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async sendMessageOrReviewEmails(data: EmailEvent['data']): Promise<void> {
-    // Implementation for message/review notifications
+    // For messages, send notification to the recipient
+    // For reviews, send notification to the reviewee
+    const isMessage = data.serviceName === 'New Message';
+    const recipientEmail = isMessage ? data.providerEmail : data.providerEmail; // For reviews, providerEmail is the reviewee
+    const recipientName = isMessage ? data.providerName : data.providerName;
+    
     await this.emailService.createEmail({
-      userId: data.conversationId || 'system',
-      to: data.customerEmail,
-      subject: '💬 New Message or Review',
+      userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
+      to: recipientEmail,
+      subject: isMessage ? '💬 New Message Received' : '⭐ New Review Received',
       html: this.generateMessageOrReviewHtml(data),
       emailType: EmailType.NEW_MESSAGE_OR_REVIEW,
       createdAt: new Date()
@@ -389,21 +461,182 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   }
 
   private generateMessageOrReviewHtml(data: EmailEvent['data']): string {
+    const isMessage = data.serviceName === 'New Message';
+    const isReview = data.serviceName === 'Service Review';
+    
+    if (isMessage) {
+      return `
+        <div style="max-width: 600px; margin: 0 auto; font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 20px; text-align: center; color: white;">
+            <h1 style="margin: 0; font-size: 28px;">💬 New Message</h1>
+            <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">You have received a new message</p>
+          </div>
+          
+          <div style="padding: 40px 20px; background: white;">
+            <p style="font-size: 16px; margin-bottom: 25px;">Hi ${data.providerName},</p>
+            
+            <p style="font-size: 16px; margin-bottom: 25px;">
+              You have received a new message from <strong>${data.customerName}</strong>.
+            </p>
+            
+            ${data.message ? `
+            <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 25px 0; border-left: 4px solid #667eea;">
+              <h4 style="margin: 0 0 10px 0; color: #667eea;">📝 Message Preview:</h4>
+              <p style="margin: 0; font-style: italic;">"${data.message}"</p>
+            </div>
+            ` : ''}
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="#" style="background: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">View Full Conversation</a>
+            </div>
+            
+            <div style="border-top: 1px solid #eee; padding-top: 20px; margin-top: 30px; text-align: center; color: #666; font-size: 14px;">
+              <p>Best regards,<br>The Zia Team</p>
+            </div>
+          </div>
+        </div>
+      `;
+    } else if (isReview) {
+      const rating = data.reviewData?.rating || 0;
+      const starDisplay = '⭐'.repeat(rating) + '☆'.repeat(5 - rating);
+      
+      return `
+        <div style="max-width: 600px; margin: 0 auto; font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 40px 20px; text-align: center; color: white;">
+            <h1 style="margin: 0; font-size: 28px;">⭐ New Review</h1>
+            <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">You have received a new review</p>
+          </div>
+          
+          <div style="padding: 40px 20px; background: white;">
+            <p style="font-size: 16px; margin-bottom: 25px;">Hi ${data.providerName},</p>
+            
+            <p style="font-size: 16px; margin-bottom: 25px;">
+              Great news! You have received a new review from <strong>${data.customerName}</strong>.
+            </p>
+            
+            <div style="background: #f8f9fa; padding: 25px; border-radius: 8px; margin: 25px 0; border-left: 4px solid #f5576c;">
+              <h4 style="margin: 0 0 15px 0; color: #f5576c;">📝 Review Details:</h4>
+              <p style="margin: 8px 0;"><strong>Rating:</strong> ${starDisplay} (${rating}/5)</p>
+              ${data.reviewData?.comment ? `<p style="margin: 8px 0;"><strong>Comment:</strong> "${data.reviewData.comment}"</p>` : ''}
+            </div>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="#" style="background: #f5576c; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">View All Reviews</a>
+            </div>
+            
+            <div style="border-top: 1px solid #eee; padding-top: 20px; margin-top: 30px; text-align: center; color: #666; font-size: 14px;">
+              <p>Best regards,<br>The Zia Team</p>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+    
+    // Fallback template
     return `
       <div style="max-width: 600px; margin: 0 auto; font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 20px; text-align: center; color: white;">
           <h1 style="margin: 0; font-size: 28px;">💬 New Activity</h1>
-          <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">You have a new message or review</p>
+          <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">You have new activity on Zia platform</p>
         </div>
         
         <div style="padding: 40px 20px; background: white;">
           <p style="font-size: 16px;">You have new activity on the Zia platform.</p>
           <div style="text-align: center; margin: 30px 0;">
-            <a href="#" style="background: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Check Your Messages</a>
+            <a href="#" style="background: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Check Your Activity</a>
           </div>
         </div>
       </div>
     `;
+  }
+
+  // Method to log rate limit hits for monitoring and analysis
+  private async logRateLimitHit(eventType: string, eventData: any): Promise<void> {
+    try {
+      const logEntry = {
+        timestamp: new Date().toISOString(),
+        eventType,
+        userEmail: eventData.customerEmail || eventData.providerEmail || 'unknown',
+        conversationId: eventData.conversationId,
+        error: 'Gmail daily sending limit exceeded',
+        suggestion: 'Consider upgrading to a professional email service'
+      };
+      
+      // Log to console for now, but this could be enhanced to:
+      // - Write to a log file
+      // - Send to a monitoring service (DataDog, New Relic, etc.)
+      // - Store in database for analysis
+      // - Send Slack/Discord notification to dev team
+      console.log('📊 Rate Limit Log:', JSON.stringify(logEntry, null, 2));
+      
+      // TODO: Implement proper logging/monitoring here
+      // Example implementations:
+      // - fs.appendFileSync('email-rate-limits.log', JSON.stringify(logEntry) + '\n');
+      // - await this.monitoringService.logEvent('email_rate_limit', logEntry);
+      // - await this.slackService.sendAlert(`Email rate limit hit for ${eventType}`);
+      
+    } catch (error) {
+      console.error('Failed to log rate limit hit:', error);
+    }
+  }
+
+  // Method to publish email events (for sending notifications from this service)
+  async publishEmailEvent(event: EmailEvent): Promise<void> {
+    // Check if connection is available
+    if (!this.channel || !this.connection) {
+      console.log('🔄 RabbitMQ connection not available for publishing');
+      return;
+    }
+
+    try {
+      const routingKey = 'email.message.review'; // Use the messaging/review routing key
+      const message = Buffer.from(JSON.stringify(event));
+
+      const published = this.channel.publish(
+        this.exchangeName,
+        routingKey,
+        message,
+        {
+          persistent: true,
+          timestamp: Date.now(),
+          messageId: `${event.type}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        }
+      );
+
+      if (published) {
+        console.log(`📧 Email event published: ${event.type}`);
+      } else {
+        throw new Error('Failed to publish message to queue');
+      }
+    } catch (error) {
+      console.error('❌ Error publishing email event:', error);
+    }
+  }
+
+  // Method to send message notification (called when a new message is sent)
+  async sendMessageNotification(data: {
+    senderEmail: string;
+    recipientEmail: string;
+    senderName: string;
+    recipientName: string;
+    conversationId: string;
+    messageContent?: string;
+  }): Promise<void> {
+    const event: EmailEvent = {
+      type: 'NEW_MESSAGE_OR_REVIEW',
+      data: {
+        customerEmail: data.senderEmail,
+        providerEmail: data.recipientEmail,
+        customerName: data.senderName,
+        providerName: data.recipientName,
+        conversationId: data.conversationId,
+        message: data.messageContent,
+        serviceName: 'New Message'
+      },
+      timestamp: new Date().toISOString()
+    };
+
+    await this.publishEmailEvent(event);
   }
 
   private async close(): Promise<void> {

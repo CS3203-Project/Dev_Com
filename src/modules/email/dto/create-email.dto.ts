@@ -1,10 +1,10 @@
-import { IsEmail, IsNotEmpty, IsString, IsEnum, IsDateString } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, IsEnum, IsDateString, IsOptional } from 'class-validator';
 import { EmailType } from '../../../common/enums/email-type.enum';
 
 export class CreateEmailDto {
   @IsString()
-  @IsNotEmpty()
-  userId: string;
+  @IsOptional()
+  userId?: string;
 
   @IsEmail()
   @IsNotEmpty()

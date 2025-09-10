@@ -1,4 +1,4 @@
-import { IsString, IsUUID, IsNotEmpty, Matches } from 'class-validator';
+import { IsString, IsUUID, IsNotEmpty, Matches, IsEmail, IsOptional } from 'class-validator';
 
 export class CreateMessageDto {
   @IsString()
@@ -16,4 +16,23 @@ export class CreateMessageDto {
   @IsString()
   @IsUUID()
   conversationId: string;
+
+  // Optional user data for email notifications
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  senderName?: string;
+
+  @IsOptional()
+  @IsEmail()
+  senderEmail?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  recipientName?: string;
+
+  @IsOptional()
+  @IsEmail()
+  recipientEmail?: string;
 }

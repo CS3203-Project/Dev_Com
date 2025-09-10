@@ -16,4 +16,20 @@ export class EmailController {
   findAllEmails(): Promise<EmailQueue[]> {
     return this.emailService.findAllEmails();
   }
+
+  @Get('status')
+  getEmailServiceStatus() {
+    const status = this.emailService.getRateLimitStatus();
+    return {
+      ...status,
+      healthy: status.remaining > 0,
+      provider: 'Gmail SMTP',
+      warning: status.remaining < 50 ? 'Approaching daily limit - consider upgrading email service' : null,
+      recommendations: status.remaining < 10 ? [
+        'Upgrade to SendGrid (40k emails/month for $15)',
+        'Try AWS SES (62k emails/month free with EC2)',
+        'Consider Mailgun or Resend for better reliability'
+      ] : null
+    };
+  }
 }

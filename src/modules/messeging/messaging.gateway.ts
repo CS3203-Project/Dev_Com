@@ -93,14 +93,35 @@ export class MessagingGateway implements OnGatewayConnection, OnGatewayDisconnec
   @SubscribeMessage('message:send')
   async handleSendMessage(
     @ConnectedSocket() client: Socket,
-    @MessageBody() createMessageDto: CreateMessageDto
+    @MessageBody() data: CreateMessageDto | any // Accept both new format with user data and legacy format
   ) {
     try {
+      // Create a proper CreateMessageDto with all required fields
+      const createMessageDto: CreateMessageDto = {
+        content: data.content,
+        fromId: data.fromId,
+        toId: data.toId,
+        conversationId: data.conversationId,
+        // Include user data if provided (for email notifications)
+        senderName: data.senderName,
+        senderEmail: data.senderEmail,
+        recipientName: data.recipientName,
+        recipientEmail: data.recipientEmail,
+      };
+
       this.logger.log(`Received message from ${createMessageDto.fromId} to ${createMessageDto.toId}`);
       console.log('--- [WS] message:send called ---');
       console.log('Payload:', createMessageDto);
       console.log('Connected users:', Array.from(this.connectedUsers.entries()));
       console.log('Active conversations:', Array.from(this.activeConversations.entries()));
+      
+      // Check if user data is provided for email notifications
+      if (createMessageDto.senderEmail && createMessageDto.recipientEmail) {
+        console.log('📧 User data provided with WebSocket message - email notifications enabled');
+      } else {
+        console.log('📧 No user data provided with WebSocket message - email notifications will be skipped');
+        console.log('💡 To enable email notifications, include senderName, senderEmail, recipientName, recipientEmail in the WebSocket payload');
+      }
       
       // Save message to database using existing service
       const savedMessage = await this.messagingService.sendMessage(createMessageDto);
