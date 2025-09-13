@@ -44,6 +44,9 @@ export class MessagingGateway implements OnGatewayConnection, OnGatewayDisconnec
         this.connectedUsers.delete(userId);
         this.activeConversations.delete(userId); // Clean up active conversation tracking
         this.logger.log(`User ${userId} disconnected`);
+        
+        // Broadcast to all connected clients that a user went offline
+        this.server.emit('user:offline', { userId, status: 'offline' });
         break;
       }
     }
@@ -58,6 +61,9 @@ export class MessagingGateway implements OnGatewayConnection, OnGatewayDisconnec
     const { userId } = data;
     this.connectedUsers.set(userId, client.id);
     this.logger.log(`User ${userId} joined with socket ${client.id}`);
+    
+    // Broadcast to all connected clients that a user came online
+    this.server.emit('user:online', { userId, status: 'online' });
     
     client.emit('user:joined', { success: true, userId });
   }
