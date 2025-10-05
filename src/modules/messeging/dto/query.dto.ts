@@ -1,4 +1,4 @@
-import { IsOptional, IsUUID, IsString, IsInt, Min, Matches } from 'class-validator';
+import { IsOptional, IsUUID, IsString, IsInt, Min, Matches, IsIn } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class GetConversationsDto {
@@ -35,6 +35,11 @@ export class GetMessagesDto {
   @IsInt()
   @Min(1)
   limit?: number = 20;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['asc', 'desc'], { message: 'order must be either "asc" or "desc"' })
+  order?: 'asc' | 'desc' = 'asc';
 }
 
 export class MarkMessageReadDto {

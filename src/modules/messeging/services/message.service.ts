@@ -73,13 +73,16 @@ export class MessageService {
    * Get messages in a conversation with pagination
    */
   async getMessages(query: GetMessagesDto): Promise<PaginatedMessagesDto> {
-    const { conversationId, page = 1, limit = 20 } = query;
+    const { conversationId, page = 1, limit = 20, order = 'asc' } = query;
     const skip = (page - 1) * limit;
+
+    // Determine sort order based on the order parameter
+    const sortOrder = order.toUpperCase() as 'ASC' | 'DESC';
 
     const [messages, total] = await this.messageRepository
       .createQueryBuilder('message')
       .where('message.conversationId = :conversationId', { conversationId })
-      .orderBy('message.createdAt', 'ASC')
+      .orderBy('message.createdAt', sortOrder)
       .skip(skip)
       .take(limit)
       .getManyAndCount();
