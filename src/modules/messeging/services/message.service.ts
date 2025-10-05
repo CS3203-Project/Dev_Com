@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { Message } from '../entities/message.entity';
 import { QueueService } from '../../queue/queue.service';
+import { MessagingGateway } from '../messaging.gateway';
 import {
   CreateMessageDto,
   GetMessagesDto,
@@ -17,6 +18,8 @@ export class MessageService {
     @InjectRepository(Message)
     private messageRepository: Repository<Message>,
     private queueService: QueueService,
+    @Inject(forwardRef(() => MessagingGateway))
+    private messagingGateway: MessagingGateway,
   ) {}
 
   /**
@@ -35,22 +38,50 @@ export class MessageService {
 
     const savedMessage = await this.messageRepository.save(message);
     
-    // Send email notification for new message
+    // SMART EMAIL NOTIFICATION: Check if message is read after 5 seconds
     try {
       // Check if we have real user data for email notifications
       if (senderEmail && recipientEmail && senderName && recipientName) {
-        console.log('📧 Sending message email notification with provided user data');
+        console.log(`📧 Message sent - Starting 5 second timer to check if read`);
+        console.log(`🕐 Will check if message ${savedMessage.id} is read by ${recipientName} (${toId}) in 5 seconds`);
         
-        await this.queueService.sendMessageNotification({
-          senderEmail: senderEmail,
-          recipientEmail: recipientEmail,
-          senderName: senderName,
-          recipientName: recipientName,
-          conversationId: conversationId,
-          messageContent: content.length > 100 ? content.substring(0, 100) + '...' : content
-        });
+        // Schedule email notification check after 5 seconds
+        setTimeout(async () => {
+          try {
+            // Re-fetch the message to check if it has been read
+            const updatedMessage = await this.messageRepository.findOne({
+              where: { id: savedMessage.id }
+            });
+            
+            if (!updatedMessage) {
+              console.log(`❌ Message ${savedMessage.id} not found during email check`);
+              return;
+            }
+            
+            // Check if message has been read (receivedAt is not null)
+            if (updatedMessage.receivedAt) {
+              console.log(`✅ Message ${savedMessage.id} was READ by ${recipientName} - Skipping email notification`);
+              console.log(`📖 Message was read at: ${updatedMessage.receivedAt.toISOString()}`);
+            } else {
+              console.log(`📧 Message ${savedMessage.id} is still UNREAD after 5 seconds - Sending email notification`);
+              
+              await this.queueService.sendMessageNotification({
+                senderEmail: senderEmail,
+                recipientEmail: recipientEmail,
+                senderName: senderName,
+                recipientName: recipientName,
+                conversationId: conversationId,
+                messageContent: content.length > 100 ? content.substring(0, 100) + '...' : content
+              });
+              
+              console.log(`✅ Email notification queued for unread message to ${recipientEmail}`);
+            }
+          } catch (delayedEmailError) {
+            console.error('❌ Error during delayed email notification check:', delayedEmailError);
+          }
+        }, 5000); // 5 seconds delay
         
-        console.log(`✅ Message email notification queued for ${recipientEmail}`);
+        console.log(`⏰ Email notification check scheduled for 5 seconds from now`);
       } else {
         console.log('📧 Message email notification skipped - missing user data');
         console.log('📝 Missing fields:', {
@@ -62,7 +93,7 @@ export class MessageService {
         console.log('💡 To enable email notifications, include senderName, senderEmail, recipientName, recipientEmail in the request');
       }
     } catch (emailError) {
-      console.error('❌ Failed to queue message notification:', emailError);
+      console.error('❌ Failed to process email notification:', emailError);
       // Don't fail the message sending if email notification fails
     }
 

@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { ConversationService } from './conversation.service';
 import { MessageService } from './message.service';
 import {
@@ -17,6 +17,7 @@ import {
 export class MessagingService {
   constructor(
     private readonly conversationService: ConversationService,
+    @Inject(forwardRef(() => MessageService))
     private readonly messageService: MessageService,
   ) {}
 

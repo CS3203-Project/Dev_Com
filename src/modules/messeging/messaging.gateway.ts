@@ -8,7 +8,7 @@ import {
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Logger } from '@nestjs/common';
+import { Logger, Inject, forwardRef } from '@nestjs/common';
 import { MessagingService } from './services/messaging.service';
 import { CreateMessageDto } from './dto';
 
@@ -27,7 +27,10 @@ export class MessagingGateway implements OnGatewayConnection, OnGatewayDisconnec
   private connectedUsers = new Map<string, string>(); // userId -> socketId
   private activeConversations = new Map<string, string>(); // userId -> conversationId (currently viewing)
 
-  constructor(private readonly messagingService: MessagingService) {}
+  constructor(
+    @Inject(forwardRef(() => MessagingService))
+    private readonly messagingService: MessagingService
+  ) {}
 
   // Handle client connection
   handleConnection(client: Socket) {
@@ -252,6 +255,11 @@ export class MessagingGateway implements OnGatewayConnection, OnGatewayDisconnec
   handleGetOnlineUsers(@ConnectedSocket() client: Socket) {
     const onlineUserIds = Array.from(this.connectedUsers.keys());
     client.emit('users:online-list', onlineUserIds);
+  }
+
+  // Check if a specific user is online
+  isUserOnline(userId: string): boolean {
+    return this.connectedUsers.has(userId);
   }
 
   // Broadcast confirmation update to both participants in a conversation
