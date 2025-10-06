@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { EmailQueue } from './entities/email.entity';
+import { Notification } from './entities/email.entity';
 import { CreateEmailDto } from './dto/create-email.dto';
 import { MailerService } from '@nestjs-modules/mailer';
 import { randomUUID } from 'crypto';
@@ -14,8 +14,8 @@ export class EmailService {
   private readonly RATE_LIMIT_WINDOW = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
   constructor(
-    @InjectRepository(EmailQueue)
-    private readonly emailRepository: Repository<EmailQueue>,
+    @InjectRepository(Notification)
+    private readonly emailRepository: Repository<Notification>,
     private readonly mailerService: MailerService,
   ) {
     // Reset rate limit counter daily
@@ -36,9 +36,9 @@ export class EmailService {
     return this.rateLimitCounter < this.DAILY_EMAIL_LIMIT;
   }
 
-  async queueEmailRecord(createEmailDto: CreateEmailDto): Promise<EmailQueue> {
+  async queueEmailRecord(createEmailDto: CreateEmailDto): Promise<Notification> {
     // Generate UUID with collision handling (extra safety)
-    let newEmail: EmailQueue;
+    let newEmail: Notification;
     let attempts = 0;
     const maxAttempts = 3;
 
@@ -64,7 +64,7 @@ export class EmailService {
     throw new Error('Failed to create email after multiple attempts');
   }
 
-  async sendAndUpdateSentAt(emailId: string): Promise<EmailQueue> {
+  async sendAndUpdateSentAt(emailId: string): Promise<Notification> {
     const emailRecord = await this.emailRepository.findOne({ where: { id: emailId } });
 
     if (!emailRecord) {
@@ -117,7 +117,7 @@ export class EmailService {
     }
   }
 
-  async createEmail(createEmailDto: CreateEmailDto): Promise<EmailQueue> {
+  async createEmail(createEmailDto: CreateEmailDto): Promise<Notification> {
     const { to, subject, html } = createEmailDto;
 
     // Check rate limit before attempting to send
@@ -158,7 +158,7 @@ export class EmailService {
     }
 
     // Generate UUID with collision handling (extra safety)
-    let newEmail: EmailQueue;
+    let newEmail: Notification;
     let attempts = 0;
     const maxAttempts = 3;
 
@@ -184,7 +184,7 @@ export class EmailService {
     throw new Error('Failed to create email after multiple attempts');
   }
 
-  async findAllEmails(): Promise<EmailQueue[]> {
+  async findAllEmails(): Promise<Notification[]> {
     return this.emailRepository.find();
   }
 

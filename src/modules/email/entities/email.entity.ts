@@ -6,8 +6,8 @@ import {
 } from 'typeorm';
 import { EmailType } from '../../../common/enums/email-type.enum';
 
-@Entity('email_queue')
-export class EmailQueue {
+@Entity('notification')
+export class Notification {
   @PrimaryColumn('uuid')
   id: string;
 
@@ -34,4 +34,7 @@ export class EmailQueue {
 
   @Column({ type: 'timestamp' })
   createdAt: Date;
+
+  @Column({ type: 'boolean', default: false })
+  isRead: boolean;
 }

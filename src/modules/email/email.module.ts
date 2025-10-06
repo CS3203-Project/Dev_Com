@@ -4,11 +4,11 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { MailerModule } from '@nestjs-modules/mailer';
 import { EmailController } from './email.controller';
 import { EmailService } from './email.service';
-import { EmailQueue } from './entities/email.entity';
+import { Notification } from './entities/email.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([EmailQueue]),
+    TypeOrmModule.forFeature([Notification]),
     MailerModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

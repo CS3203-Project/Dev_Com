@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsString, IsEnum, IsDateString, IsOptional } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, IsEnum, IsDateString, IsOptional, IsBoolean } from 'class-validator';
 import { EmailType } from '../../../common/enums/email-type.enum';
 
 export class CreateEmailDto {
@@ -25,4 +25,8 @@ export class CreateEmailDto {
   @IsDateString()
   @IsNotEmpty()
   createdAt: Date;
+
+  @IsBoolean()
+  @IsOptional()
+  isRead?: boolean;
 }

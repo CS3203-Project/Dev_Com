@@ -1,8 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { MailerService } from '@nestjs-modules/mailer';
+import { Notification } from './entities/email.entity';
 import { EmailService } from './email.service';
-import { EmailQueue } from './entities/email.entity';
 import { CreateEmailDto } from './dto/create-email.dto';
 import { EmailType } from '../../common/enums/email-type.enum';
 
@@ -28,7 +29,7 @@ describe('EmailService', () => {
       providers: [
         EmailService,
         {
-          provide: getRepositoryToken(EmailQueue),
+          provide: getRepositoryToken(Notification),
           useValue: mockEmailRepository,
         },
         {
