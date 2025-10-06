@@ -36,6 +36,87 @@ export class EmailService {
     return this.rateLimitCounter < this.DAILY_EMAIL_LIMIT;
   }
 
+  async queueEmailRecord(createEmailDto: CreateEmailDto): Promise<EmailQueue> {
+    // Generate UUID with collision handling (extra safety)
+    let newEmail: EmailQueue;
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    while (attempts < maxAttempts) {
+      try {
+        newEmail = this.emailRepository.create({
+          ...createEmailDto,
+          id: randomUUID(), // Generate UUID manually
+          sentAt: undefined, // Store with sentAt undefined - will be updated after sending
+        });
+
+        return await this.emailRepository.save(newEmail);
+      } catch (error) {
+        // If it's a duplicate key error, retry with new UUID
+        if (error.code === '23505' && attempts < maxAttempts - 1) {
+          attempts++;
+          continue;
+        }
+        throw error; // Re-throw if it's not a duplicate or max attempts reached
+      }
+    }
+
+    throw new Error('Failed to create email after multiple attempts');
+  }
+
+  async sendAndUpdateSentAt(emailId: string): Promise<EmailQueue> {
+    const emailRecord = await this.emailRepository.findOne({ where: { id: emailId } });
+
+    if (!emailRecord) {
+      throw new Error(`Email record not found: ${emailId}`);
+    }
+
+    // Check rate limit before attempting to send
+    if (!this.checkRateLimit()) {
+      const resetTime = new Date(this.rateLimitResetTime).toLocaleString();
+      throw new Error(`Daily email limit reached (${this.DAILY_EMAIL_LIMIT}). Rate limit resets at: ${resetTime}`);
+    }
+
+    try {
+      await this.mailerService.sendMail({
+        to: emailRecord.to,
+        subject: emailRecord.subject,
+        html: emailRecord.html,
+      });
+
+      // Increment rate limit counter on successful send
+      this.rateLimitCounter++;
+
+      console.log(`📧 Email sent successfully (${this.rateLimitCounter}/${this.DAILY_EMAIL_LIMIT} today) - Record ID: ${emailId}`);
+
+      // Warn when approaching limit
+      if (this.rateLimitCounter >= this.DAILY_EMAIL_LIMIT * 0.9) {
+        console.warn(`⚠️  Approaching daily email limit: ${this.rateLimitCounter}/${this.DAILY_EMAIL_LIMIT}`);
+        console.warn('💡 Consider upgrading to a professional email service for production use');
+      }
+
+      // Update sentAt timestamp
+      emailRecord.sentAt = new Date();
+      return await this.emailRepository.save(emailRecord);
+
+    } catch (error) {
+      // Enhanced error handling - log but don't throw for store-first-send-later approach
+      if (error.code === 'EENVELOPE' && error.response?.includes('Daily user sending limit exceeded')) {
+        // Force rate limit counter to max to prevent further attempts
+        this.rateLimitCounter = this.DAILY_EMAIL_LIMIT;
+        console.error(`🚫 Gmail daily limit exceeded - email ${emailId} will remain unsent until reset`);
+        throw error; // Re-throw rate limit errors
+      }
+
+      // For other send errors, log but don't throw - record remains in DB with sentAt=null
+      console.error(`❌ Failed to send email ${emailId}: ${error.message}`);
+      console.error('📝 Email record preserved in database for potential retry');
+
+      // Re-throw the error so caller can handle retry logic
+      throw error;
+    }
+  }
+
   async createEmail(createEmailDto: CreateEmailDto): Promise<EmailQueue> {
     const { to, subject, html } = createEmailDto;
 

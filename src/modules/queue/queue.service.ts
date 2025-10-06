@@ -233,86 +233,123 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async sendBookingConfirmationEmails(data: EmailEvent['data']): Promise<void> {
-    // Send email to customer
-    await this.emailService.createEmail({
-      userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
-      to: data.customerEmail,
-      subject: '🎉 Booking Confirmation - Your Service is Confirmed!',
-      html: this.generateBookingConfirmationHtml(data, 'customer'),
-      emailType: EmailType.BOOKING_CONFIRMATION,
-      createdAt: new Date()
-    });
+    // Store and send email to customer (store-first-send-later pattern)
+    try {
+      const customerEmailRecord = await this.emailService.queueEmailRecord({
+        userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
+        to: data.customerEmail,
+        subject: '🎉 Booking Confirmation - Your Service is Confirmed!',
+        html: this.generateBookingConfirmationHtml(data, 'customer'),
+        emailType: EmailType.BOOKING_CONFIRMATION,
+        createdAt: new Date()
+      });
 
-    // Send email to provider
-    await this.emailService.createEmail({
-      userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
-      to: data.providerEmail,
-      subject: '📋 New Booking Confirmation - Service Request Confirmed',
-      html: this.generateBookingConfirmationHtml(data, 'provider'),
-      emailType: EmailType.BOOKING_CONFIRMATION,
-      createdAt: new Date()
-    });
+      await this.emailService.sendAndUpdateSentAt(customerEmailRecord.id);
+    } catch (error) {
+      console.error('❌ Failed to send customer booking confirmation email:', error);
+    }
+
+    // Store and send email to provider (store-first-send-later pattern)
+    try {
+      const providerEmailRecord = await this.emailService.queueEmailRecord({
+        userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
+        to: data.providerEmail,
+        subject: '📋 New Booking Confirmation - Service Request Confirmed',
+        html: this.generateBookingConfirmationHtml(data, 'provider'),
+        emailType: EmailType.BOOKING_CONFIRMATION,
+        createdAt: new Date()
+      });
+
+      await this.emailService.sendAndUpdateSentAt(providerEmailRecord.id);
+    } catch (error) {
+      console.error('❌ Failed to send provider booking confirmation email:', error);
+    }
   }
 
   private async sendBookingModificationEmails(data: EmailEvent['data']): Promise<void> {
-    // Send email to customer
-    await this.emailService.createEmail({
-      userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
-      to: data.customerEmail,
-      subject: '🔄 Booking Updated - Your Service Details Have Changed',
-      html: this.generateBookingModificationHtml(data, 'customer'),
-      emailType: EmailType.BOOKING_CANCELLATION_MODIFICATION,
-      createdAt: new Date()
-    });
+    // Store and send email to customer (store-first-send-later pattern)
+    try {
+      const customerEmailRecord = await this.emailService.queueEmailRecord({
+        userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
+        to: data.customerEmail,
+        subject: '🔄 Booking Updated - Your Service Details Have Changed',
+        html: this.generateBookingModificationHtml(data, 'customer'),
+        emailType: EmailType.BOOKING_CANCELLATION_MODIFICATION,
+        createdAt: new Date()
+      });
 
-    // Send email to provider
-    await this.emailService.createEmail({
-      userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
-      to: data.providerEmail,
-      subject: '🔄 Booking Updated - Service Details Have Changed',
-      html: this.generateBookingModificationHtml(data, 'provider'),
-      emailType: EmailType.BOOKING_CANCELLATION_MODIFICATION,
-      createdAt: new Date()
-    });
+      await this.emailService.sendAndUpdateSentAt(customerEmailRecord.id);
+    } catch (error) {
+      console.error('❌ Failed to send customer booking modification email:', error);
+    }
+
+    // Store and send email to provider (store-first-send-later pattern)
+    try {
+      const providerEmailRecord = await this.emailService.queueEmailRecord({
+        userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
+        to: data.providerEmail,
+        subject: '🔄 Booking Updated - Service Details Have Changed',
+        html: this.generateBookingModificationHtml(data, 'provider'),
+        emailType: EmailType.BOOKING_CANCELLATION_MODIFICATION,
+        createdAt: new Date()
+      });
+
+      await this.emailService.sendAndUpdateSentAt(providerEmailRecord.id);
+    } catch (error) {
+      console.error('❌ Failed to send provider booking modification email:', error);
+    }
   }
 
   private async sendBookingReminderEmails(data: EmailEvent['data']): Promise<void> {
-    // Send reminder to customer
-    await this.emailService.createEmail({
-      userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
-      to: data.customerEmail,
-      subject: '⏰ Service Reminder - Your Appointment is Coming Up',
-      html: this.generateBookingReminderHtml(data, 'customer'),
-      emailType: EmailType.BOOKING_REMINDER,
-      createdAt: new Date()
-    });
+    // Store and send reminder to customer (store-first-send-later pattern)
+    try {
+      const customerEmailRecord = await this.emailService.queueEmailRecord({
+        userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
+        to: data.customerEmail,
+        subject: '⏰ Service Reminder - Your Appointment is Coming Up',
+        html: this.generateBookingReminderHtml(data, 'customer'),
+        emailType: EmailType.BOOKING_REMINDER,
+        createdAt: new Date()
+      });
 
-    // Send reminder to provider
-    await this.emailService.createEmail({
-      userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
-      to: data.providerEmail,
-      subject: '⏰ Service Reminder - Upcoming Appointment',
-      html: this.generateBookingReminderHtml(data, 'provider'),
-      emailType: EmailType.BOOKING_REMINDER,
-      createdAt: new Date()
-    });
+      await this.emailService.sendAndUpdateSentAt(customerEmailRecord.id);
+    } catch (error) {
+      console.error('❌ Failed to send customer booking reminder email:', error);
+    }
+
+    // Store and send reminder to provider (store-first-send-later pattern)
+    try {
+      const providerEmailRecord = await this.emailService.queueEmailRecord({
+        userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
+        to: data.providerEmail,
+        subject: '⏰ Service Reminder - Upcoming Appointment',
+        html: this.generateBookingReminderHtml(data, 'provider'),
+        emailType: EmailType.BOOKING_REMINDER,
+        createdAt: new Date()
+      });
+
+      await this.emailService.sendAndUpdateSentAt(providerEmailRecord.id);
+    } catch (error) {
+      console.error('❌ Failed to send provider booking reminder email:', error);
+    }
   }
 
   private async sendMessageOrReviewEmails(data: EmailEvent['data']): Promise<void> {
-    // For messages, send notification to the recipient
-    // For reviews, send notification to the reviewee
-    const isMessage = data.serviceName === 'New Message';
-    const recipientEmail = isMessage ? data.providerEmail : data.providerEmail; // For reviews, providerEmail is the reviewee
-    const recipientName = isMessage ? data.providerName : data.providerName;
-    
-    await this.emailService.createEmail({
-      userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
-      to: recipientEmail,
-      subject: isMessage ? '💬 New Message Received' : '⭐ New Review Received',
-      html: this.generateMessageOrReviewHtml(data),
-      emailType: EmailType.NEW_MESSAGE_OR_REVIEW,
-      createdAt: new Date()
-    });
+    // Store and send notification to the recipient (store-first-send-later pattern)
+    try {
+      const emailRecord = await this.emailService.queueEmailRecord({
+        userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
+        to: data.providerEmail, // For both messages and reviews, providerEmail is the recipient
+        subject: data.serviceName === 'New Message' ? '💬 New Message Received' : '⭐ New Review Received',
+        html: this.generateMessageOrReviewHtml(data),
+        emailType: EmailType.NEW_MESSAGE_OR_REVIEW,
+        createdAt: new Date()
+      });
+
+      await this.emailService.sendAndUpdateSentAt(emailRecord.id);
+    } catch (error) {
+      console.error('❌ Failed to send message/review notification email:', error);
+    }
   }
 
   private formatDate(dateString?: string): string {
