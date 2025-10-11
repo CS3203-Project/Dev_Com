@@ -341,7 +341,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
         userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
         to: data.providerEmail, // For both messages and reviews, providerEmail is the recipient
         subject: data.serviceName === 'New Message' ? '💬 New Message Received' :
-                data.serviceName === 'Service Request Match' ? '🎯 New Service Request Match' : '⭐ New Review Received',
+                (data.metadata?.serviceRequestId !== undefined) ? '🎯 Service Request Match' : '⭐ New Review Received',
         html: this.generateMessageOrReviewHtml(data),
         emailType: EmailType.NEW_MESSAGE_OR_REVIEW,
         createdAt: new Date()
@@ -501,7 +501,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   private generateMessageOrReviewHtml(data: EmailEvent['data']): string {
     const isMessage = data.serviceName === 'New Message';
     const isReview = data.serviceName === 'Service Review';
-    const isServiceMatch = data.serviceName === 'Service Request Match';
+    const isServiceMatch = data.metadata?.serviceRequestId !== undefined; // Check if it has serviceRequest metadata
 
     if (isServiceMatch) {
       return `
@@ -519,10 +519,12 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
             </p>
 
             <div style="background: #f8f9fa; padding: 25px; border-radius: 8px; margin: 25px 0; border-left: 4px solid #FF6B35;">
-              <h4 style="margin: 0 0 15px 0; color: #FF6B35;">📋 Request Details:</h4>
-              <p style="margin: 8px 0;"><strong>Title:</strong> ${data.metadata?.customerName || 'Customer'}'s Request</p>
-              ${data.message ? `<p style="margin: 8px 0;"><strong>Description:</strong> ${data.message.split('\n')[2]}</p>` : ''}
+              <h4 style="margin: 0 0 15px 0; color: #FF6B35;">📋 Service Request Details:</h4>
+              <p style="margin: 8px 0;"><strong>Title:</strong> ${data.metadata?.requestTitle || 'Untitled Request'}</p>
+              <p style="margin: 8px 0;"><strong>Description:</strong> ${data.metadata?.requestDescription || 'No description provided'}</p>
+              ${data.metadata?.customerLocation ? `<p style="margin: 8px 0;"><strong>Location:</strong> ${data.metadata.customerLocation}</p>` : ''}
               <p style="margin: 8px 0;"><strong>Match Score:</strong> ${data.metadata?.matchPercentage}%</p>
+              <p style="margin: 8px 0;"><strong>Customer:</strong> ${data.metadata?.customerName || 'Customer'}</p>
               <p style="margin: 8px 0;"><strong>Your Service:</strong> ${data.metadata?.serviceTitle || 'Your Service'}</p>
             </div>
 
