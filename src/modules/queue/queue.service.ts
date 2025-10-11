@@ -340,7 +340,8 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       const emailRecord = await this.emailService.queueEmailRecord({
         userId: undefined, // Use undefined instead of conversationId to avoid foreign key constraint issues
         to: data.providerEmail, // For both messages and reviews, providerEmail is the recipient
-        subject: data.serviceName === 'New Message' ? '💬 New Message Received' : '⭐ New Review Received',
+        subject: data.serviceName === 'New Message' ? '💬 New Message Received' :
+                data.serviceName === 'Service Request Match' ? '🎯 New Service Request Match' : '⭐ New Review Received',
         html: this.generateMessageOrReviewHtml(data),
         emailType: EmailType.NEW_MESSAGE_OR_REVIEW,
         createdAt: new Date()
@@ -500,8 +501,55 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   private generateMessageOrReviewHtml(data: EmailEvent['data']): string {
     const isMessage = data.serviceName === 'New Message';
     const isReview = data.serviceName === 'Service Review';
-    
-    if (isMessage) {
+    const isServiceMatch = data.serviceName === 'Service Request Match';
+
+    if (isServiceMatch) {
+      return `
+        <div style="max-width: 600px; margin: 0 auto; font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <div style="background: linear-gradient(135deg, #FF6B35 0%, #F7931E 100%); padding: 40px 20px; text-align: center; color: white;">
+            <h1 style="margin: 0; font-size: 28px;">🎯 Service Request Match</h1>
+            <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">Your service matches a new customer request</p>
+          </div>
+
+          <div style="padding: 40px 20px; background: white;">
+            <p style="font-size: 16px; margin-bottom: 25px;">Hi ${data.providerName},</p>
+
+            <p style="font-size: 16px; margin-bottom: 25px;">
+              Great news! A new service request on Zia matches your offering <strong>"${data.metadata?.serviceTitle || 'your service'}"</strong> with a <strong>${data.metadata?.matchPercentage}%</strong> similarity score.
+            </p>
+
+            <div style="background: #f8f9fa; padding: 25px; border-radius: 8px; margin: 25px 0; border-left: 4px solid #FF6B35;">
+              <h4 style="margin: 0 0 15px 0; color: #FF6B35;">📋 Request Details:</h4>
+              <p style="margin: 8px 0;"><strong>Title:</strong> ${data.metadata?.customerName || 'Customer'}'s Request</p>
+              ${data.message ? `<p style="margin: 8px 0;"><strong>Description:</strong> ${data.message.split('\n')[2]}</p>` : ''}
+              <p style="margin: 8px 0;"><strong>Match Score:</strong> ${data.metadata?.matchPercentage}%</p>
+              <p style="margin: 8px 0;"><strong>Your Service:</strong> ${data.metadata?.serviceTitle || 'Your Service'}</p>
+            </div>
+
+            <div style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin: 25px 0;">
+              <h4 style="margin: 0 0 10px 0; color: #28a745;">💡 Why This Matters</h4>
+              <ul style="margin: 0; padding-left: 20px;">
+                <li style="margin: 5px 0;">This customer is actively looking for services like yours</li>
+                <li style="margin: 5px 0;">High match score means your service fits their needs well</li>
+                <li style="margin: 5px 0;">Be the first to respond and win their business</li>
+              </ul>
+            </div>
+
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="#" style="background: #FF6B35; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">View Request & Respond</a>
+            </div>
+
+            <p style="font-size: 14px; color: #666; margin-top: 30px;">
+              Don't miss out on potential customers! Respond quickly to increase your chances of getting the job.
+            </p>
+
+            <div style="border-top: 1px solid #eee; padding-top: 20px; margin-top: 30px; text-align: center; color: #666; font-size: 14px;">
+              <p>Best regards,<br>The Zia Team</p>
+            </div>
+          </div>
+        </div>
+      `;
+    } else if (isMessage) {
       return `
         <div style="max-width: 600px; margin: 0 auto; font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
           <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 20px; text-align: center; color: white;">
