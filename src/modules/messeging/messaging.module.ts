@@ -6,6 +6,7 @@ import { ConversationService, MessageService, MessagingService } from './service
 import { MessagingController } from './messaging.controller';
 import { MessagingGateway } from './messaging.gateway';
 import { QueueModule } from '../queue/queue.module';
+import { CryptoService } from '../../common/utils/crypto.service';
 
 @Module({
   imports: [
@@ -17,14 +18,16 @@ import { QueueModule } from '../queue/queue.module';
     ConversationService,
     MessageService,
     MessagingService,
-    MessagingGateway
+    MessagingGateway,
+    CryptoService
   ],
   exports: [
     ConversationService,
     MessageService,
     MessagingService,
     TypeOrmModule,
-    MessagingGateway
+    MessagingGateway,
+    CryptoService
   ]
 })
 export class MessagingModule {}
