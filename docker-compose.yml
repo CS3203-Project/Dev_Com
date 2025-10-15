@@ -4,22 +4,11 @@ services:
   app:
     build: .
     ports:
-      - '${PORT:-3000}:${PORT:-3000}'
+      - '${PORT:-3001}:${PORT:-3001}'
     env_file:
       - .env
-    depends_on:
-      - rabbitmq
-    networks:
-      - nest-network
-
-  rabbitmq:
-    image: rabbitmq:3.9-management-alpine
-    ports:
-      - '5672:5672' # For application connection
-      - '15672:15672' # For management UI
-    networks:
-      - nest-network
-
-networks:
-  nest-network:
-    driver: bridge
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    # External RabbitMQ configuration is handled via environment variables
+    # No internal services needed since using external RabbitMQ
