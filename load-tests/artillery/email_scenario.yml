@@ -1,0 +1,167 @@
+config:
+  target: "{{ $processEnvironment.COMMUNICATION_URL || 'http://localhost:3001' }}"
+
+  # Very light load for email - 1-2 requests/second to respect Gmail limits
+  # SIMULATES email queuing without actual sending (email service will store but not send)
+  phases:
+    - duration: 30    # 30 second warm-up
+      arrivalRate: 1
+    - duration: 300   # 5 minutes of very light traffic
+      arrivalRate: 2
+    - duration: 30    # 30 second cool-down
+      arrivalRate: 1
+      rampTo: 0
+
+  defaults:
+    headers:
+      Content-Type: "application/json"
+    timeout: 60  # Slightly longer timeout for email operations
+
+  plugins:
+    metrics-by-endpoint:
+      outputFormat: json
+
+  environments:
+    base:
+      variables:
+        testEmailRecipient: "loadtest_{{ $randomInt(1000, 9999) }}@test.com"
+        testEmailSubject: "Load Test Email - Transaction {{ $randomInt(1, 10000) }}"
+        emailContentType: "{{ $random('booking_confirmation', 'service_reminder', 'booking_modification', 'welcome_email') }}"
+
+scenarios:
+  # Scenario 1: Queue booking confirmation email (most common)
+  - name: "Queue booking confirmation email"
+    weight: 40
+    flow:
+      - post:
+          url: "/email"
+          json:
+            to: "{{ testEmailRecipient }}"
+            subject: "🎉 Booking Confirmed - Service Scheduled"
+            html: |
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>🎉 Your Service Booking is Confirmed!</h2>
+                <p>Dear Customer,</p>
+                <p>Your booking for service has been successfully confirmed. This email is generated during load testing and is mocked (not actually sent via Gmail).</p>
+                <p>Test ID: {{ $randomInt(1000, 9999) }}</p>
+                <p>Thank you for using our platform!</p>
+              </div>
+            emailType: "BOOKING_CONFIRMATION"
+            createdAt: "{{ $isoTimestamp }}"
+            userId: "user_{{ $randomInt(1, 1000) }}"
+          capture:
+            - json: "$.id"
+              as: "emailId"
+          expect:
+            - statusCode: 201
+            - hasProperty: "id"
+        think: 3  # Respect email rate limits with longer pauses
+
+  # Scenario 2: Queue service reminder email
+  - name: "Queue service reminder email"
+    weight: 25
+    flow:
+      - post:
+          url: "/email"
+          json:
+            to: "{{ testEmailRecipient }}"
+            subject: "⏰ Service Reminder - Appointment Tomorrow"
+            html: |
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>⏰ Service Reminder</h2>
+                <p>Dear Customer,</p>
+                <p>This is a friendly reminder that your scheduled service is coming up. This is a load test email (mocked, not sent to Gmail).</p>
+                <p>Test ID: {{ $randomInt(1000, 9999) }}</p>
+                <p>We look forward to serving you!</p>
+              </div>
+            emailType: "BOOKING_REMINDER"
+            createdAt: "{{ $isoTimestamp }}"
+          expect:
+            - statusCode: 201
+        think: 5  # Even longer pause to simulate realistic email timing
+
+  # Scenario 3: Queue booking modification email
+  - name: "Queue booking modification email"
+    weight: 15
+    flow:
+      - post:
+          url: "/email"
+          json:
+            to: "{{ testEmailRecipient }}"
+            subject: "🔄 Booking Updated - Changes Made"
+            html: |
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>🔄 Your Booking Has Been Updated</h2>
+                <p>Dear Customer,</p>
+                <p>There have been changes to your service booking. This email simulates the booking modification notification (load test - not sent to Gmail).</p>
+                <p>Test ID: {{ $randomInt(1000, 9999) }}</p>
+                <p>Please review your updated booking details in the app.</p>
+              </div>
+            emailType: "BOOKING_CANCELLATION_MODIFICATION"
+            createdAt: "{{ $isoTimestamp }}"
+          expect:
+            - statusCode: 201
+        think: 4  # Simulate processing time
+
+  # Scenario 4: Check email service status (monitoring)
+  - name: "Check email service status"
+    weight: 20
+    flow:
+      - get:
+          url: "/email/status"
+          expect:
+            - statusCode: 200
+            - hasProperty: "provider"
+            - hasProperty: "remaining"
+            - hasProperty: "healthy"
+        think: 2
+
+      # Occasionally check all queued emails (light monitoring)
+      - get:
+          url: "/email/all"
+          expect:
+            - statusCode: 200
+            # Accept any response - just testing the endpoint
+        think: 10  # Monitor once every scenario cycle
+
+# Performance thresholds - very tolerant for email operations
+ensure:
+  - maxErrorRate: 2  # Very low error tolerance for email operations
+  - availability: 99  # Email must be highly reliable
+  - maxResponseTime:
+      max: 5000  # 5 second max for email operations
+      availability: 95
+
+# Reporting configuration focused on Gmail rate limit compliance
+reporting:
+  - module: artillery-plugin-metrics-by-endpoint
+    options:
+      outputFormat: json
+      customMetrics:
+        - name: "email_queued"
+          calculator: "divide"
+          increment: 1
+          condition: "response.statusCode === 201 && url.includes('/email')"
+        - name: "email_service_healthy"
+          calculator: "percentage"
+          condition: "response.body.healthy === true"
+      disableDefaultMetrics: false
+
+# Environment-specific overrides
+environments:
+  development:
+    target: "http://localhost:3001"
+
+  testing:
+    target: "{{ $processEnvironment.COMMUNICATION_TEST_URL }}"
+
+  staging:
+    target: "{{ $processEnvironment.COMMUNICATION_STAGING_URL }}"
+    phases:
+      - duration: 30
+        arrivalRate: 1  # Even slower in staging
+      - duration: 120
+        arrivalRate: 1.5
+      - duration: 30
+        arrivalRate: 1.5
+        rampTo: 0

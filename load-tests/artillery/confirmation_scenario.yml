@@ -1,0 +1,285 @@
+config:
+  target: "{{ $processEnvironment.COMMUNICATION_URL || 'http://localhost:3001' }}"
+
+  # Moderate load for confirmation operations - 3-5 requests/second max
+  # Tests confirmation code broadcasting and verification response times
+  phases:
+    - duration: 30    # 30 second warm-up
+      arrivalRate: 1
+    - duration: 120   # 2 minutes sustained load
+      arrivalRate: 4
+    - duration: 30    # 30 second cool-down
+      arrivalRate: 2
+      rampTo: 0
+
+  defaults:
+    headers:
+      Content-Type: "application/json"
+    timeout: 20  # Shorter timeout for confirmation operations
+
+  plugins:
+    metrics-by-endpoint:
+      outputFormat: both
+
+  environments:
+    base:
+      variables:
+        conversationId: "conv_{{ $randomString() }}_{{ $randomInt(1000, 9999) }}"
+        userId: "user_{{ $randomInt(1, 1000) }}"
+        verificationCode: "{{ $randomString(6) }}"
+        emailCode: "{{ $randomString(8).toUpperCase() }}"
+        bookingId: "booking_{{ $randomInt(10000, 99999) }}"
+
+scenarios:
+  # Scenario 1: Email confirmation code broadcast
+  - name: "Email confirmation code broadcast"
+    weight: 50
+    flow:
+      # Broadcast email verification code
+      - post:
+          url: "/api/confirmation/broadcast"
+          json:
+            conversationId: "{{ conversationId }}"
+            confirmation:
+              type: "email_verification"
+              code: "{{ emailCode }}"
+              data:
+                userId: "{{ userId }}"
+                email: "user{{ userId }}@test.com"
+                purpose: "email_verification"
+                timestamp: "{{ $isoTimestamp }}"
+              validUntil: "{{ $isodate(1) }}"  # 1 hour validity
+          expect:
+            - statusCode: 200
+            - hasProperty: "success"
+            - equals:
+                property: "success"
+                value: true
+        think: 2  # Wait before next verification attempt
+
+      # Broadcast another email verification (different email)
+      - post:
+          url: "/api/confirmation/broadcast"
+          json:
+            conversationId: "{{ conversationId }}"
+            confirmation:
+              type: "email_verification"
+              code: "{{ $randomString(8).toUpperCase() }}"
+              data:
+                userId: "user_{{ $randomInt(1001, 2000) }}"
+                email: "user{{ $randomInt(1001, 2000) }}@test.com"
+                purpose: "password_reset"
+                timestamp: "{{ $isoTimestamp }}"
+              validUntil: "{{ $isodate(2) }}"  # 2 hours validity
+          expect:
+            - statusCode: 200
+        think: 1
+
+  # Scenario 2: Two-factor authentication code broadcast
+  - name: "Two-factor authentication code"
+    weight: 25
+    flow:
+      # Broadcast 2FA code via SMS simulation
+      - post:
+          url: "/api/confirmation/broadcast"
+          json:
+            conversationId: "{{ conversationId }}"
+            confirmation:
+              type: "sms_2fa"
+              code: "{{ $randomInt(100000, 999999) }}"
+              data:
+                userId: "{{ userId }}"
+                phone: "+1{{ $randomInt(1000000000, 9999999999) }}"
+                purpose: "login_2fa"
+                timestamp: "{{ $isoTimestamp }}"
+              validUntil: "{{ $isodate(0.083) }}"  # 5 minutes validity
+          expect:
+            - statusCode: 200
+        think: 1
+
+      # Broadcast booking verification code
+      - post:
+          url: "/api/confirmation/broadcast"
+          json:
+            conversationId: "{{ conversationId }}"
+            confirmation:
+              type: "booking_verification"
+              code: "{{ $randomString(6).toUpperCase() }}"
+              data:
+                booking: {
+                  bookingId: "{{ bookingId }}",
+                  serviceName: "House Cleaning",
+                  verificationType: "customer_approval"
+                },
+                userId: "{{ userId }}"
+              validUntil: "{{ $isodate(24) }}"  # 24 hours validity
+          expect:
+            - statusCode: 200
+        think: 2
+
+  # Scenario 3: Account registration verification
+  - name: "Account registration verification"
+    weight: 15
+    flow:
+      # Broadcast registration email verification
+      - post:
+          url: "/api/confirmation/broadcast"
+          json:
+            conversationId: "{{ conversationId }}"
+            confirmation:
+              type: "registration_email"
+              code: "{{ $randomString(10) }}"
+              data:
+                userId: "{{ userId }}"
+                email: "newuser_{{ userId }}@test.com"
+                name: "Test User {{ userId }}"
+                purpose: "account_activation"
+                registrationDate: "{{ $isoTimestamp }}"
+              validUntil: "{{ $isodate(168) }}"  # 7 days validity
+          expect:
+            - statusCode: 200
+        think: 3
+
+      # Broadcast phone number verification for registration
+      - post:
+          url: "/api/confirmation/broadcast"
+          json:
+            conversationId: "{{ conversationId }}"
+            confirmation:
+              type: "registration_sms"
+              code: "{{ $randomInt(100000, 999999) }}"
+              data:
+                userId: "{{ userId }}"
+                phone: "+1{{ $randomInt(1000000000, 9999999999) }}"
+                purpose: "phone_verification"
+                timestamp: "{{ $isoTimestamp }}"
+              validUntil: "{{ $isodate(1) }}"
+          expect:
+            - statusCode: 200
+        think: 2
+
+  # Scenario 4: Booking cancellation verification
+  - name: "Booking cancellation verification"
+    weight: 10
+    flow:
+      # Broadcast cancellation confirmation code
+      - post:
+          url: "/api/confirmation/broadcast"
+          json:
+            conversationId: "{{ conversationId }}"
+            confirmation:
+              type: "cancellation_verification"
+              code: "{{ $randomString(6) }}"
+              data:
+                booking: {
+                  bookingId: "{{ bookingId }}",
+                  serviceName: "Home Repair",
+                  originalDate: "{{ $isodate(-1) }}",  # Yesterday
+                  cancellationFee: "{{ $randomInt(10, 50) }}",
+                  refundAmount: "{{ $randomInt(50, 200) }}"
+                },
+                userId: "{{ userId }}",
+                purpose: "cancellation_confirm",
+                timestamp: "{{ $isoTimestamp }}"
+              validUntil: "{{ $isodate(1) }}"  # 1 hour validity
+          expect:
+            - statusCode: 200
+        think: 3
+
+      # Broadcast urgent cancellation (different conversation)
+      - post:
+          url: "/api/confirmation/broadcast"
+          json:
+            conversationId: "conv_cancel_{{ $randomInt(1, 1000) }}"
+            confirmation:
+              type: "emergency_cancellation"
+              code: "{{ $randomString(6).toUpperCase() }}"
+              data:
+                booking: {
+                  bookingId: "urgent_{{ bookingId }}",
+                  serviceName: "Emergency Plumbing",
+                  originalDate: "{{ $isodate(0) }}",  # Today
+                  immediateCancellation: true
+                },
+                userId: "{{ userId }}",
+                priority: "high",
+                timestamp: "{{ $isoTimestamp }}"
+              validUntil: "{{ $isodate(0.083) }}"  # 5 minutes for urgent cases
+          expect:
+            - statusCode: 200
+        think: 1
+
+# Performance thresholds for confirmation operations
+ensure:
+  - maxErrorRate: 1  # Very low error rate for confirmation codes
+  - availability: 99  # 99% of confirmations must succeed
+  - maxResponseTime:
+      max: 1500  # 1.5 seconds max for code broadcasting
+      availability: 98
+
+# Reporting configuration with custom confirmation metrics
+reporting:
+  - module: artillery-plugin-metrics-by-endpoint
+    options:
+      outputFormat: json
+      customMetrics:
+        - name: "confirmation_code_broadcast"
+          calculator: "count"
+          increment: 1
+          condition: "response.body.success === true && url.includes('/confirmation/broadcast')"
+        - name: "email_verification_sent"
+          calculator: "count"
+          increment: 1
+          condition: "response.body.success === true && JSON.parse(requestBody).confirmation?.type?.includes('email')"
+        - name: "sms_verification_sent"
+          calculator: "count"
+          increment: 1
+          condition: "response.body.success === true && JSON.parse(requestBody).confirmation?.type?.includes('sms')"
+        - name: "verification_response_time"
+          calculator: "mean"
+          field: "timings.waiting"
+          condition: "url.includes('/confirmation/broadcast')"
+      disableDefaultMetrics: false
+  - module: artillery-plugin-statsd
+    options:
+      host: localhost
+      port: 8125
+      prefix: "artillery.communication.confirmation."
+
+# Environment-specific configurations
+environments:
+  development:
+    target: "http://localhost:3001"
+    phases:
+      - duration: 20
+        arrivalRate: 1
+      - duration: 90
+        arrivalRate: 3
+      - duration: 20
+        arrivalRate: 1
+        rampTo: 0
+
+  staging:
+    target: "{{ $processEnvironment.COMMUNICATION_STAGING_URL }}"
+    phases:
+      - duration: 15
+        arrivalRate: 0.5
+      - duration: 60
+        arrivalRate: 2
+      - duration: 15
+        arrivalRate: 1
+        rampTo: 0
+
+  testing:
+    target: "{{ $processEnvironment.COMMUNICATION_TEST_URL }}"note: |
+  # Confirmation Module Testing Notes:
+  #
+  # This scenario tests the confirmation broadcast functionality which handles:
+  # 1. Email verification codes for user registration
+  # 2. Two-factor authentication codes
+  # 3. Booking confirmation codes
+  # 4. Cancellation verification codes
+  # 5. Password reset verification codes
+  #
+  # All confirmations are broadcast via WebSocket to conversation participants
+  # rather than direct database verification, simulating real-time confirmation flows.

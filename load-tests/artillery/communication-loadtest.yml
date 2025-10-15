@@ -1,0 +1,500 @@
+config:
+  target: "{{ $processEnvironment.COMMUNICATION_URL || 'http://localhost:3001' }}"
+
+  # Moderate balanced load across all modules - max 15 VUs total
+  # Distributes traffic proportionally: Messaging (~40%), Email (~20%), Queue (~20%), Confirmation (~20%)
+  phases:
+    - duration: 60    # 1 minute warm-up across all modules
+      arrivalRate: 1  # Start very slow for each scenario
+      weight: 5       # Light on all scenarios
+    - duration: 300   # 5 minutes sustained production-like load
+      arrivalRate: 2
+      weight: 10      # Moderate traffic distribution
+    - duration: 120   # 2 minutes peak load simulation
+      arrivalRate: 3
+      weight: 15      # Higher load for capacity testing
+    - duration: 60    # 1 minute cool-down
+      arrivalRate: 1
+      weight: 5
+      rampTo: 0
+
+  defaults:
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+    timeout: 30  # Base timeout for operations
+
+  plugins:
+    metrics-by-endpoint:
+      outputFormat: both
+    artillery-plugin-publish-metrics:
+      outputFormat: json
+
+  environments:
+    base:
+      variables:
+        # Messaging variables
+        fromUserId: "user_{{ $randomInt(100, 500) }}"
+        toUserId: "user_{{ $randomInt(600, 1000) }}"
+        conversationId: "conv_{{ $randomString() }}"
+        messageContent: "Load test message {{ $randomInt(1, 999) }} at {{ $isoTimestamp }}"
+
+        # Email variables
+        testEmailRecipient: "loadtest_{{ $randomInt(1000, 9999) }}@test.com"
+        testEmailSubject: "Load Test Email - Transaction {{ $randomInt(1, 10000) }}"
+
+        # Queue/Confirmation variables
+        confirmationCode: "{{ $randomString(6) }}"
+        bookingId: "book_{{ $randomInt(10000, 99999) }}"
+        verificationCode: "{{ $randomString(6) }}"
+
+scenarios:
+  # ===== MESSAGING MODULE SCENARIOS (40% of traffic) =====
+  - name: "Messaging - Create and send message"
+    weight: 15  # 15% of total traffic
+    flow:
+      - post:
+          url: "/messaging/conversations"
+          json:
+            userIds:
+              - "{{ fromUserId }}"
+              - "{{ toUserId }}"
+            title: "Load Test Conversation {{ $randomInt(1, 100) }}"
+          capture:
+            - json: "$.id"
+              as: "conversationId"
+          expect:
+            - statusCode: 201
+        think: 1
+
+      - post:
+          url: "/messaging/messages"
+          json:
+            content: "{{ messageContent }}"
+            fromId: "{{ fromUserId }}"
+            toId: "{{ toUserId }}"
+            conversationId: "{{ conversationId }}"
+            senderName: "User {{ fromUserId }}"
+            senderEmail: "user{{ fromUserId }}@test.com"
+            recipientName: "User {{ toUserId }}"
+            recipientEmail: "user{{ toUserId }}@test.com"
+          expect:
+            - statusCode: 201
+        think: 1
+
+  - name: "Messaging - Send reply"
+    weight: 12  # 12% of traffic
+    flow:
+      - post:
+          url: "/messaging/messages"
+          json:
+            content: "Reply: {{ messageContent }}"
+            fromId: "{{ toUserId }}"
+            toId: "{{ fromUserId }}"
+            conversationId: "{{ $randomString() }}"
+            senderName: "User {{ toUserId }}"
+            senderEmail: "user{{ toUserId }}@test.com"
+            recipientName: "User {{ fromUserId }}"
+            recipientEmail: "user{{ fromUserId }}@test.com"
+          expect:
+            - statusCode: [200, 201, 400, 404]
+        think: 1
+
+  - name: "Messaging - Read conversation history"
+    weight: 10  # 10% of traffic
+    flow:
+      - get:
+          url: "/messaging/messages?conversationId={{ $randomString() }}&userId={{ fromUserId }}"
+          expect:
+            - statusCode: [200, 404]
+        think: 1
+
+      - get:
+          url: "/messaging/users/{{ fromUserId }}/unread-count"
+          expect:
+            - statusCode: 200
+        think: 1
+
+  - name: "Messaging - Browse conversations"
+    weight: 3  # 3% of traffic
+    flow:
+      - get:
+          url: "/messaging/conversations?userId={{ fromUserId }}"
+          expect:
+            - statusCode: 200
+        think: 2
+
+  # ===== EMAIL MODULE SCENARIOS (20% of traffic) =====
+  # All email operations are MOCKED - stored in DB but NOT sent to Gmail
+  - name: "Email - Queue booking confirmation"
+    weight: 12  # 12% of traffic
+    flow:
+      - post:
+          url: "/email"
+          json:
+            to: "{{ testEmailRecipient }}"
+            subject: "🎉 Booking Confirmed - Service Scheduled"
+            html: |
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>🎉 Your Service Booking is Confirmed!</h2>
+                <p>This is a load test email (mocked, not actually sent to Gmail).</p>
+                <p>Test ID: {{ $randomInt(1000, 9999) }}</p>
+              </div>
+            emailType: "BOOKING_CONFIRMATION"
+            createdAt: "{{ $isoTimestamp }}"
+            userId: "user_{{ $randomInt(1, 1000) }}"
+          expect:
+            - statusCode: 201
+        think: 2  # Respect rate limits
+
+  - name: "Email - Queue reminder"
+    weight: 5  # 5% of traffic
+    flow:
+      - post:
+          url: "/email"
+          json:
+            to: "{{ testEmailRecipient }}"
+            subject: "⏰ Service Reminder - Appointment Tomorrow"
+            html: "<p>MOCKED: Service reminder email queued for load testing.</p>"
+            emailType: "BOOKING_REMINDER"
+            createdAt: "{{ $isoTimestamp }}"
+          expect:
+            - statusCode: 201
+        think: 3
+
+  - name: "Email - Check service status"
+    weight: 3  # 3% of traffic
+    flow:
+      - get:
+          url: "/email/status"
+          expect:
+            - statusCode: 200
+        think: 5  # Monitor occasionally
+
+  # ===== QUEUE MODULE SCENARIOS (20% of traffic) =====
+  # Simulates queue publishing through confirmation broadcast
+  - name: "Queue - Publish booking confirmation event"
+    weight: 7  # 7% of traffic
+    flow:
+      - post:
+          url: "/api/confirmation/broadcast"
+          json:
+            conversationId: "{{ $randomString() }}"
+            confirmation:
+              type: "booking_confirm"
+              data:
+                bookingId: "{{ bookingId }}"
+                serviceName: "Home Cleaning Service"
+                customerName: "Test Customer {{ $randomInt(1, 100) }}"
+                providerName: "Test Provider {{ $randomInt(101, 200) }}"
+                customerEmail: "{{ testEmailRecipient }}"
+                providerEmail: "provider{{ $randomInt(101, 200) }}@test.com"
+                startDate: "{{ $isoTimestamp }}"
+                endDate: "{{ $isodate(1) }}"
+                serviceFee: "{{ $randomInt(20, 200) }}"
+                currency: "USD"
+              code: "{{ confirmationCode }}"
+              validUntil: "{{ $isodate(24) }}"
+          expect:
+            - statusCode: 200
+        think: 1
+
+  - name: "Queue - Publish message notification"
+    weight: 6  # 6% of traffic
+    flow:
+      - post:
+          url: "/api/confirmation/broadcast"
+          json:
+            conversationId: "{{ $randomString() }}"
+            confirmation:
+              type: "new_message"
+              data:
+                senderId: "{{ fromUserId }}"
+                recipientId: "{{ toUserId }}"
+                senderName: "User {{ fromUserId }}"
+                recipientName: "User {{ toUserId }}"
+                senderEmail: "user{{ fromUserId }}@test.com"
+                recipientEmail: "user{{ toUserId }}@test.com"
+                messageContent: "{{ messageContent }}"
+                conversationId: "{{ $randomString() }}"
+                timestamp: "{{ $isoTimestamp }}"
+                metadata:
+                  serviceName: "Kitchen Painting"
+                  customerLocation: "Downtown Area"
+              code: "MSG_{{ confirmationCode }}"
+          expect:
+            - statusCode: 200
+        think: 2
+
+  - name: "Queue - Publish service match event"
+    weight: 5  # 5% of traffic
+    flow:
+      - post:
+          url: "/api/confirmation/broadcast"
+          json:
+            conversationId: "{{ $randomString() }}"
+            confirmation:
+              type: "service_match"
+              data:
+                providerEmail: "provider{{ $randomInt(101, 200) }}@test.com"
+                customerName: "Customer {{ $randomInt(1, 100) }}"
+              metadata:
+                serviceTitle: "House Painting Request"
+                requestTitle: "Need painter for 2 bedroom apartment"
+                matchPercentage: "{{ $randomInt(70, 95) }}"
+                serviceRequestId: "req_{{ $randomInt(10000, 99999) }}"
+              code: "{{ confirmationCode }}"
+              validUntil: "{{ $isodate(48) }}"
+          expect:
+            - statusCode: 200
+        think: 3
+
+  - name: "Queue - Publish booking modification"
+    weight: 2  # 2% of traffic
+    flow:
+      - post:
+          url: "/api/confirmation/broadcast"
+          json:
+            conversationId: "{{ $randomString() }}"
+            confirmation:
+              type: "booking_modify"
+              data:
+                bookingId: "{{ bookingId }}"
+                originalServiceName: "Home Cleaning"
+                newServiceName: "Deep Cleaning"
+                customerName: "Test Customer {{ $randomInt(1, 100) }}"
+                providerName: "Test Provider {{ $randomInt(101, 200) }}"
+                reason: "Customer requested upgrade"
+                serviceFee: "{{ $randomInt(50, 200) }}"
+              validUntil: "{{ $isodate(24) }}"
+          expect:
+            - statusCode: 200
+        think: 2
+
+  # ===== CONFIRMATION MODULE SCENARIOS (20% of traffic) =====
+  - name: "Confirmation - Email verification code"
+    weight: 10  # 10% of traffic
+    flow:
+      - post:
+          url: "/api/confirmation/broadcast"
+          json:
+            conversationId: "{{ $randomString() }}"
+            confirmation:
+              type: "email_verification"
+              code: "{{ verificationCode }}"
+              data:
+                userId: "{{ fromUserId }}"
+                email: "user{{ fromUserId }}@test.com"
+                purpose: "email_verification"
+              validUntil: "{{ $isodate(1) }}"
+          expect:
+            - statusCode: 200
+        think: 1
+
+  - name: "Confirmation - 2FA SMS code"
+    weight: 5  # 5% of traffic
+    flow:
+      - post:
+          url: "/api/confirmation/broadcast"
+          json:
+            conversationId: "{{ $randomString() }}"
+            confirmation:
+              type: "sms_2fa"
+              code: "{{ $randomInt(100000, 999999) }}"
+              data:
+                userId: "{{ fromUserId }}"
+                phone: "+1{{ $randomInt(1000000000, 9999999999) }}"
+                purpose: "login_2fa"
+              validUntil: "{{ $isodate(0.083) }}"  # 5 minutes
+          expect:
+            - statusCode: 200
+        think: 2
+
+  - name: "Confirmation - Registration verification"
+    weight: 3  # 3% of traffic
+    flow:
+      - post:
+          url: "/api/confirmation/broadcast"
+          json:
+            conversationId: "{{ $randomString() }}"
+            confirmation:
+              type: "registration_email"
+              code: "{{ $randomString(10) }}"
+              data:
+                userId: "{{ fromUserId }}"
+                email: "newuser_{{ fromUserId }}@test.com"
+                purpose: "account_activation"
+              validUntil: "{{ $isodate(168) }}"  # 7 days
+          expect:
+            - statusCode: 200
+        think: 3
+
+  - name: "Confirmation - Cancellation verification"
+    weight: 2  # 2% of traffic
+    flow:
+      - post:
+          url: "/api/confirmation/broadcast"
+          json:
+            conversationId: "{{ $randomString() }}"
+            confirmation:
+              type: "cancellation_verification"
+              code: "{{ verificationCode }}"
+              data:
+                bookingId: "{{ bookingId }}"
+                purpose: "cancellation_confirm"
+              validUntil: "{{ $isodate(1) }}"
+          expect:
+            - statusCode: 200
+        think: 2
+
+# ===== COMPREHENSIVE PERFORMANCE THRESHOLDS =====
+ensure:
+  # Overall service reliability
+  - maxErrorRate: 5  # Allow 5% error rate across all operations
+  - availability: 95  # 95% of requests should succeed
+
+  # Module-specific performance targets
+  - maxResponseTime:
+      max: 3000  # 3 seconds overall max response time
+      availability: 95
+  - maxResponseTime:
+      max: 1200  # 1.2 seconds for messaging operations
+      availability: 98
+      condition: "url.includes('/messaging/')"
+  - maxResponseTime:
+      max: 5000  # 5 seconds for email operations (queuing)
+      availability: 95
+      condition: "url.includes('/email')"
+  - maxResponseTime:
+      max: 2000  # 2 seconds for queue operations
+      availability: 97
+      condition: "url.includes('/confirmation/broadcast')"
+  - maxResponseTime:
+      max: 1500  # 1.5 seconds for confirmations
+      availability: 98
+      condition: "url.includes('/confirmation/broadcast')"
+
+# ===== ADVANCED REPORTING & METRICS =====
+reporting:
+  - module: artillery-plugin-metrics-by-endpoint
+    options:
+      outputFormat: json
+      customMetrics:
+        # Module-specific success rates
+        - name: "messaging_success_rate"
+          calculator: "percentage"
+          condition: "url.includes('/messaging/') && response.statusCode >= 200 && response.statusCode < 300"
+        - name: "email_queue_success_rate"
+          calculator: "percentage"
+          condition: "url.includes('/email') && response.statusCode >= 200 && response.statusCode < 300"
+        - name: "queue_publish_success_rate"
+          calculator: "percentage"
+          condition: "url.includes('/confirmation/broadcast') && response.body.success === true"
+
+        # Business metrics
+        - name: "messages_sent"
+          calculator: "count"
+          increment: 1
+          condition: "url.includes('/messaging/messages') && response.statusCode === 201"
+        - name: "emails_queued"
+          calculator: "count"
+          increment: 1
+          condition: "url.includes('/email') && response.statusCode === 201"
+        - name: "confirmations_broadcast"
+          calculator: "count"
+          increment: 1
+          condition: "url.includes('/confirmation/broadcast') && response.body.success === true"
+
+        # Performance metrics
+        - name: "average_messaging_latency"
+          calculator: "mean"
+          field: "timings.waiting"
+          condition: "url.includes('/messaging/')"
+        - name: "email_queue_latency"
+          calculator: "mean"
+          field: "timings.waiting"
+          condition: "url.includes('/email')"
+      disableDefaultMetrics: false
+
+  - module: artillery-plugin-statsd
+    options:
+      host: localhost
+      port: 8125
+      prefix: "artillery.communication.combined."
+
+  # External monitoring integration (optional)
+  - module: artillery-plugin-datadog
+    options:
+      apiKey: "{{ $processEnvironment.DATADOG_API_KEY }}"
+      prefix: "artillery.communication"
+      tags:
+        - env: "{{ $processEnvironment.NODE_ENV || 'development' }}"
+        - service: "communication-service"
+        - test: "combined-loadtest"
+
+# ===== ENVIRONMENT-SPECIFIC CONFIGURATIONS =====
+environments:
+  development:
+    target: "http://localhost:3001"
+    phases:
+      - duration: 30    # Shorter test for dev
+        arrivalRate: 1
+      - duration: 180   # 3 minutes instead of 5
+        arrivalRate: 2
+      - duration: 60    # 1 minute peak instead of 2
+        arrivalRate: 3
+      - duration: 30
+        arrivalRate: 1
+        rampTo: 0
+
+  staging:
+    target: "{{ $processEnvironment.COMMUNICATION_STAGING_URL }}"
+    phases:
+      - duration: 60
+        arrivalRate: 0.5
+        weight: 3
+      - duration: 240
+        arrivalRate: 1.5
+        weight: 8
+      - duration: 90
+        arrivalRate: 2.5
+        weight: 12
+      - duration: 60
+        arrivalRate: 1
+        weight: 4
+        rampTo: 0
+
+  testing:
+    target: "{{ $processEnvironment.COMMUNICATION_TEST_URL }}"
+    plugins:
+      artillery-plugin-expect:
+        disabled: false  # Extra validation in testing
+
+  production:
+    target: "{{ $processEnvironment.COMMUNICATION_PRODUCTION_URL }}"
+    phases: []  # Disable by default - production runs only when explicitly configured
+
+# ===== LOAD TEST NOTES =====
+# Usage Examples:
+#
+# 1. Development testing (fast feedback):
+#    artillery run communication/load-tests/artillery/communication-loadtest.yml --environment development
+#
+# 2. Staging with monitoring:
+#    COMMUNICATION_STAGING_URL=https://staging.api.company.com artillery run communication/load-tests/artillery/communication-loadtest.yml --environment staging
+#
+# 3. Individual module testing:
+#    artillery run communication/load-tests/artillery/messaging_scenario.yml
+#    artillery run communication/load-tests/artillery/email_scenario.yml
+#    artillery run communication/load-tests/artillery/queue_scenario.yml
+#    artillery run communication/load-tests/artillery/confirmation_scenario.yml
+#
+# 4. With custom metrics output:
+#    artillery run communication/load-tests/artillery/communication-loadtest.yml --output report.json --output-format json
+#
+# ===== IMPORTANT CONSTRAINTS =====
+# - Maximum 15 requests/second total (RabbitMQ Cloud tier limits)
+# - Email operations are MOCKED (stored in DB, NOT sent to Gmail)
+# - Respects Gmail rate limits by using longer think times for email operations
+# - Weight distribution: Messaging 40%, Email 20%, Queue 20%, Confirmation 20%
+# - All operations use realistic user behaviors with appropriate delays

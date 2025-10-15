@@ -1,0 +1,145 @@
+config:
+  target: "{{ $processEnvironment.COMMUNICATION_URL || 'http://localhost:3001' }}"
+
+  # Moderate load for messaging - 5 requests/second max
+  phases:
+    - duration: 60    # 1 minute ramp-up
+      arrivalRate: 2  # Start slow
+      rampTo: 5       # Ramp up to 5 req/sec max
+    - duration: 240   # 4 minutes sustained load
+      arrivalRate: 5
+    - duration: 60    # 1 minute ramp-down
+      arrivalRate: 5
+      rampTo: 1
+
+  defaults:
+    headers:
+      Content-Type: "application/json"
+    timeout: 30  # Shorter timeout for better performance metrics
+
+  plugins:
+    metrics-by-endpoint: {}
+
+  environments:
+    base:
+      variables:
+        fromUserId: "user_{{ $randomInt(100, 500) }}"
+        toUserId: "user_{{ $randomInt(600, 1000) }}"
+        conversationId: "conv_{{ $randomString() }}"
+        messageContent: "Load test message {{ $randomInt(1, 999) }} at {{ $isoTimestamp }}"
+
+scenarios:
+  # Scenario 1: Create conversation and send message
+  - name: "Create conversation and send message"
+    weight: 30
+    flow:
+      # Step 1: Create a new conversation between two users
+      - post:
+          url: "/messaging/conversations"
+          json:
+            userIds:
+              - "{{ fromUserId }}"
+              - "{{ toUserId }}"
+            title: "Load Test Conversation {{ $randomInt(1, 100) }}"
+          capture:
+            - json: "$.id"
+              as: "conversationId"
+          expect:
+            - statusCode: 201
+        think: 1  # Pause for 1 second
+
+      # Step 2: Send initial message
+      - post:
+          url: "/messaging/messages"
+          json:
+            content: "{{ messageContent }}"
+            fromId: "{{ fromUserId }}"
+            toId: "{{ toUserId }}"
+            conversationId: "{{ conversationId }}"
+            senderName: "User {{ fromUserId }}"
+            senderEmail: "user{{ fromUserId }}@test.com"
+            recipientName: "User {{ toUserId }}"
+            recipientEmail: "user{{ toUserId }}@test.com"
+          capture:
+            - json: "$.id"
+              as: "messageId"
+          expect:
+            - statusCode: 201
+        think: 2  # Simulate user thinking
+
+  # Scenario 2: Send reply in existing conversation
+  - name: "Send message in conversation"
+    weight: 40
+    flow:
+      # Generate conversation ID for existing conversation
+      - post:
+          url: "/messaging/messages"
+          json:
+            content: "Reply: {{ messageContent }}"
+            fromId: "{{ toUserId }}"  # Swap sender/receiver
+            toId: "{{ fromUserId }}"
+            conversationId: "{{ $randomString() }}"  # Simulate existing conversation
+            senderName: "User {{ toUserId }}"
+            senderEmail: "user{{ toUserId }}@test.com"
+            recipientName: "User {{ fromUserId }}"
+            recipientEmail: "user{{ fromUserId }}@test.com"
+          expect:
+            - statusCode: [200, 201, 400, 404]  # Accept various responses
+        think: 1
+
+  # Scenario 3: Read message history
+  - name: "Fetch message history"
+    weight: 30
+    flow:
+      # Fetch messages for a conversation
+      - get:
+          url: "/messaging/messages?conversationId={{ $randomString() }}&userId={{ fromUserId }}"
+          expect:
+            - statusCode: [200, 404]  # Accept 404 for non-existent conversations
+        think: 1
+
+      # Check unread message count
+      - get:
+          url: "/messaging/users/{{ fromUserId }}/unread-count"
+          expect:
+            - statusCode: 200
+            - hasProperty: "count"
+        think: 2
+
+  # Scenario 4: Browse conversations
+  - name: "Browse conversations"
+    weight: 20
+    flow:
+      # Get user's conversations
+      - get:
+          url: "/messaging/conversations?userId={{ fromUserId }}"
+          expect:
+            - statusCode: 200
+        think: 1
+
+      # Get enhanced conversations with last message
+      - get:
+          url: "/messaging/conversations/enhanced?userId={{ fromUserId }}"
+          expect:
+            - statusCode: 200
+        think: 2
+
+# Performance thresholds
+ensure:
+  - maxErrorRate: 5  # Allow up to 5% error rate
+  - availability: 95  # 95% of requests should succeed
+  - maxResponseTime:
+      max: 2000  # Max response time 2 seconds
+      availability: 95
+
+# Reporting configuration
+reporting:
+  - module: artillery-plugin-metrics-by-endpoint
+    options:
+      outputFormat: both  # Console and JSON
+      disableDefaultMetrics: false
+  - module: artillery-plugin-statsd
+    options:
+      host: localhost
+      port: 8125
+      prefix: "artillery.communication.messaging."

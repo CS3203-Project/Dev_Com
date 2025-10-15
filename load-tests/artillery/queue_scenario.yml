@@ -1,0 +1,212 @@
+config:
+  target: "{{ $processEnvironment.COMMUNICATION_URL || 'http://localhost:3001' }}"
+
+  # Light load for queue/RabbitMQ operations - 2-3 requests/second max
+  # Uses confirmation broadcast endpoint to simulate queue publishing
+  phases:
+    - duration: 45    # 45 second warm-up
+      arrivalRate: 1
+    - duration: 180   # 3 minutes sustained light load
+      arrivalRate: 3
+    - duration: 45    # 45 second cool-down
+      arrivalRate: 2
+      rampTo: 0
+
+  defaults:
+    headers:
+      Content-Type: "application/json"
+    timeout: 45  # Moderate timeout for queue operations
+
+  plugins:
+    metrics-by-endpoint: {}
+
+  environments:
+    base:
+      variables:
+        conversationId: "conv_{{ $randomString() }}_{{ $randomInt(1000, 9999) }}"
+        userOneId: "user_{{ $randomInt(1, 500) }}"
+        userTwoId: "user_{{ $randomInt(501, 1000) }}"
+        confirmationCode: "{{ $randomString(6) }}"
+        bookingId: "book_{{ $randomInt(10000, 99999) }}"
+
+scenarios:
+  # Scenario 1: Broadcast booking confirmation
+  - name: "Broadcast booking confirmation"
+    weight: 35
+    flow:
+      - post:
+          url: "/api/confirmation/broadcast"
+          json:
+            conversationId: "{{ conversationId }}"
+            confirmation:
+              type: "booking_confirm"
+              data:
+                bookingId: "{{ bookingId }}"
+                serviceName: "Home Cleaning Service"
+                customerName: "Test Customer {{ $randomInt(1, 100) }}"
+                providerName: "Test Provider {{ $randomInt(101, 200) }}"
+                customerEmail: "customer{{ $randomInt(1, 100) }}@test.com"
+                providerEmail: "provider{{ $randomInt(101, 200) }}@test.com"
+                startDate: "{{ $isoTimestamp }}"
+                endDate: "{{ $isodate(1) }}"  # 1 hour from now
+                serviceFee: "{{ $randomInt(20, 200) }}"
+                currency: "USD"
+              code: "{{ confirmationCode }}"
+              validUntil: "{{ $isodate(24) }}"
+          expect:
+            - statusCode: 200
+            - hasProperty: "success"
+        think: 2  # Simulate processing and queue acknowledgment
+
+  # Scenario 2: Broadcast booking modification
+  - name: "Broadcast booking modification"
+    weight: 25
+    flow:
+      - post:
+          url: "/api/confirmation/broadcast"
+          json:
+            conversationId: "{{ conversationId }}"
+            confirmation:
+              type: "booking_modify"
+              data:
+                bookingId: "{{ bookingId }}"
+                originalServiceName: "Home Cleaning Service"
+                newServiceName: "Deep Cleaning Service"
+                customerName: "Test Customer {{ $randomInt(1, 100) }}"
+                providerName: "Test Provider {{ $randomInt(101, 200) }}"
+                customerEmail: "customer{{ $randomInt(1, 100) }}@test.com"
+                providerEmail: "provider{{ $randomInt(101, 200) }}@test.com"
+                oldDate: "{{ $isoTimestamp }}"
+                newStartDate: "{{ $isodate(2) }}"
+                newEndDate: "{{ $isodate(3) }}"
+                serviceFee: "{{ $randomInt(50, 200) }}"
+                currency: "USD"
+                reason: "Customer requested upgrade to deeper cleaning"
+              code: "{{ confirmationCode }}"
+              validUntil: "{{ $isodate(24) }}"
+          expect:
+            - statusCode: 200
+        think: 3  # Simulate longer processing for modifications
+
+  # Scenario 3: Broadcast message notification
+  - name: "Broadcast message notification"
+    weight: 20
+    flow:
+      - post:
+          url: "/api/confirmation/broadcast"
+          json:
+            conversationId: "{{ conversationId }}"
+            confirmation:
+              type: "new_message"
+              data:
+                senderId: "{{ userOneId }}"
+                recipientId: "{{ userTwoId }}"
+                senderName: "User {{ userOneId }}"
+                recipientName: "User {{ userTwoId }}"
+                senderEmail: "user{{ userOneId }}@test.com"
+                recipientEmail: "user{{ userTwoId }}@test.com"
+                messageContent: "Test message content {{ $randomInt(1000, 9999) }} sent at {{ $isoTimestamp }}"
+                conversationId: "{{ conversationId }}"
+                timestamp: "{{ $isoTimestamp }}"
+              metadata:
+                serviceName: "Kitchen Painting"
+                customerLocation: "Downtown Area"
+                customerName: "Test Customer"
+                serviceRequestId: "req_{{ $randomInt(10000, 99999) }}"
+              code: "MSG_{{ confirmationCode }}"
+          expect:
+            - statusCode: 200
+        think: 1  # Faster processing for messages
+
+  # Scenario 4: Broadcast service request match
+  - name: "Broadcast service request match"
+    weight: 20
+    flow:
+      - post:
+          url: "/api/confirmation/broadcast"
+          json:
+            conversationId: "{{ conversationId }}"
+            confirmation:
+              type: "service_match"
+              data:
+                providerEmail: "provider{{ $randomInt(101, 200) }}@test.com"
+                customerName: "Customer {{ $randomInt(1, 100) }}"
+                serviceName: "New matching service request"
+              metadata:
+                serviceTitle: "House Painting Request"
+                requestTitle: "Need painter for 2 bedroom apartment"
+                requestDescription: "Looking for experienced painter for 2 bedroom apartment, 1200 sq ft"
+                customerLocation: "Midtown"
+                matchPercentage: "{{ $randomInt(70, 95) }}"
+                serviceRequestId: "req_{{ $randomInt(10000, 99999) }}"
+              code: "{{ confirmationCode }}"
+              validUntil: "{{ $isodate(48) }}"  # 48 hours validity
+          expect:
+            - statusCode: 200
+        think: 4  # Simulate processing for matching algorithm
+
+# Performance thresholds for queue operations
+ensure:
+  - maxErrorRate: 3  # Allow 3% error rate for queue operations
+  - availability: 97  # 97% of queue operations should succeed
+  - maxResponseTime:
+      max: 3000  # 3 second max for queue acknowledge response
+      availability: 95
+
+# Reporting configuration with custom metrics for queue performance
+reporting:
+  - module: artillery-plugin-metrics-by-endpoint
+    options:
+      outputFormat: json
+      customMetrics:
+        - name: "queue_message_published"
+          calculator: "count"
+          increment: 1
+          condition: "response.body.success === true && url.includes('/confirmation/broadcast')"
+        - name: "queue_publish_latency"
+          calculator: "mean"
+          field: "timings.waiting"
+          condition: "url.includes('/confirmation/broadcast')"
+      disableDefaultMetrics: false
+  - module: artillery-plugin-statsd
+    options:
+      host: localhost
+      port: 8125
+      prefix: "artillery.communication.queue."
+
+# Environment-specific configurations
+environments:
+  development:
+    target: "http://localhost:3001"
+    phases:
+      - duration: 30
+        arrivalRate: 1
+      - duration: 120
+        arrivalRate: 2
+      - duration: 30
+        arrivalRate: 2
+        rampTo: 0
+
+  staging:
+    target: "{{ $processEnvironment.COMMUNICATION_STAGING_URL }}"
+    phases:
+      - duration: 30
+        arrivalRate: 0.5  # Even lighter in staging
+      - duration: 120
+        arrivalRate: 1.5
+      - duration: 30
+        arrivalRate: 1.5
+        rampTo: 0
+
+  testing:
+    target: "{{ $processEnvironment.COMMUNICATION_TEST_URL }}"remark: |
+    # Queue Load Testing Notes:
+    #
+    # This scenario tests queue publishing through the confirmation broadcast endpoint
+    # rather than direct RabbitMQ publishing. The confirmation controller will:
+    # 1. Receive the broadcast request
+    # 2. Process the confirmation data
+    # 3. Publish to RabbitMQ queue via MessagingGateway
+    # 4. Email service consumer picks up the message and processes emails
+    #
+    # This simulates real email event publishing without hitting RabbitMQ API directly.
