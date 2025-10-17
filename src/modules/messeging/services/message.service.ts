@@ -106,7 +106,7 @@ export class MessageService {
    * Get messages in a conversation with pagination
    */
   async getMessages(query: GetMessagesDto): Promise<PaginatedMessagesDto> {
-    const { conversationId, page = 1, limit = 20, order = 'asc' } = query;
+    const { conversationId, page = 1, limit = 20, order = 'desc' } = query;
     const skip = (page - 1) * limit;
 
     // Determine sort order based on the order parameter
