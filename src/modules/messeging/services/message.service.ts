@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto';
 import { Message } from '../entities/message.entity';
 import { QueueService } from '../../queue/queue.service';
 import { MessagingGateway } from '../messaging.gateway';
+import { EncryptionService } from '../../../common/services/encryption.service';
 import {
   CreateMessageDto,
   GetMessagesDto,
@@ -20,6 +21,7 @@ export class MessageService {
     private queueService: QueueService,
     @Inject(forwardRef(() => MessagingGateway))
     private messagingGateway: MessagingGateway,
+    private encryptionService: EncryptionService,
   ) {}
 
   /**
@@ -31,7 +33,7 @@ export class MessageService {
     // Create new message
     const message = new Message();
     message.id = randomUUID();
-    message.content = content;
+    message.content = await this.encryptionService.encrypt(content);
     message.fromId = fromId;
     message.toId = toId;
     message.conversationId = conversationId;
@@ -118,7 +120,7 @@ export class MessageService {
       .take(limit)
       .getManyAndCount();
 
-    const messageDtos = messages.map(message => this.mapMessageToDto(message));
+    const messageDtos = await Promise.all(messages.map(message => this.mapMessageToDto(message)));
 
     return {
       data: messageDtos,
@@ -265,7 +267,7 @@ export class MessageService {
       .take(limit)
       .getManyAndCount();
 
-    const messageDtos = messages.map(message => this.mapMessageToDto(message));
+    const messageDtos = await Promise.all(messages.map(message => this.mapMessageToDto(message)));
 
     return {
       data: messageDtos,
@@ -279,10 +281,13 @@ export class MessageService {
   /**
    * Map message entity to DTO
    */
-  mapMessageToDto(message: Message): MessageResponseDto {
+  async mapMessageToDto(message: Message): Promise<MessageResponseDto> {
+    // Decrypt message content for client response
+    const decryptedContent = await this.encryptionService.decrypt(message.content);
+
     return {
       id: message.id,
-      content: message.content,
+      content: decryptedContent,
       fromId: message.fromId,
       toId: message.toId,
       conversationId: message.conversationId,

@@ -40,6 +40,16 @@ MAIL_USER=your-email@gmail.com
 MAIL_PASS=your-gmail-app-password
 ```
 
+### Message Security (CRITICAL - Required)
+```
+ENCRYPTION_KEY=<64-character-hex-key>
+```
+**IMPORTANT**: Generate a secure encryption key for message security:
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+This key protects all user messages and must be kept secure and consistent across deployments.
+
 ### Runtime Configuration
 ```
 NODE_ENV=production
