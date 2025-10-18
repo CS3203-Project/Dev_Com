@@ -41,4 +41,5 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "dist/src/main"]
+# Run the compiled NestJS entrypoint (generated at dist/main.js by nest build)
+CMD ["node", "dist/main"]
