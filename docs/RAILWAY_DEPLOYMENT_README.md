@@ -145,4 +145,4 @@ MAIL_PASS=app-specific-password
 - Review logs for performance issues
 
 ---
-*Note: This is your first containerization experience - the setup is production-ready and follows Railway best practices!*
+*Note: This is my first containerization experience - the setup is production-ready and follows Railway best practices!*

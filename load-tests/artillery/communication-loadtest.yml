@@ -65,7 +65,7 @@ scenarios:
               as: "conversationId"
           expect:
             - statusCode: 201
-        think: 1
+      - think: 1
 
       - post:
           url: "/messaging/messages"
@@ -80,7 +80,7 @@ scenarios:
             recipientEmail: "user{{ toUserId }}@test.com"
           expect:
             - statusCode: 201
-        think: 1
+      - think: 1
 
   - name: "Messaging - Send reply"
     weight: 12  # 12% of traffic
@@ -98,7 +98,7 @@ scenarios:
             recipientEmail: "user{{ fromUserId }}@test.com"
           expect:
             - statusCode: [200, 201, 400, 404]
-        think: 1
+      - think: 1
 
   - name: "Messaging - Read conversation history"
     weight: 10  # 10% of traffic
@@ -107,13 +107,13 @@ scenarios:
           url: "/messaging/messages?conversationId={{ $randomString() }}&userId={{ fromUserId }}"
           expect:
             - statusCode: [200, 404]
-        think: 1
+      - think: 1
 
       - get:
           url: "/messaging/users/{{ fromUserId }}/unread-count"
           expect:
             - statusCode: 200
-        think: 1
+      - think: 1
 
   - name: "Messaging - Browse conversations"
     weight: 3  # 3% of traffic
@@ -122,7 +122,7 @@ scenarios:
           url: "/messaging/conversations?userId={{ fromUserId }}"
           expect:
             - statusCode: 200
-        think: 2
+      - think: 2
 
   # ===== EMAIL MODULE SCENARIOS (20% of traffic) =====
   # All email operations are MOCKED - stored in DB but NOT sent to Gmail
@@ -145,7 +145,7 @@ scenarios:
             userId: "user_{{ $randomInt(1, 1000) }}"
           expect:
             - statusCode: 201
-        think: 2  # Respect rate limits
+      - think: 2  # Respect rate limits
 
   - name: "Email - Queue reminder"
     weight: 5  # 5% of traffic
@@ -160,7 +160,7 @@ scenarios:
             createdAt: "{{ $isoTimestamp }}"
           expect:
             - statusCode: 201
-        think: 3
+      - think: 3
 
   - name: "Email - Check service status"
     weight: 3  # 3% of traffic
@@ -169,7 +169,7 @@ scenarios:
           url: "/email/status"
           expect:
             - statusCode: 200
-        think: 5  # Monitor occasionally
+      - think: 5  # Monitor occasionally
 
   # ===== QUEUE MODULE SCENARIOS (20% of traffic) =====
   # Simulates queue publishing through confirmation broadcast
@@ -197,7 +197,7 @@ scenarios:
               validUntil: "{{ $isodate(24) }}"
           expect:
             - statusCode: 200
-        think: 1
+      - think: 1
 
   - name: "Queue - Publish message notification"
     weight: 6  # 6% of traffic
@@ -224,7 +224,7 @@ scenarios:
               code: "MSG_{{ confirmationCode }}"
           expect:
             - statusCode: 200
-        think: 2
+      - think: 2
 
   - name: "Queue - Publish service match event"
     weight: 5  # 5% of traffic
@@ -247,7 +247,7 @@ scenarios:
               validUntil: "{{ $isodate(48) }}"
           expect:
             - statusCode: 200
-        think: 3
+      - think: 3
 
   - name: "Queue - Publish booking modification"
     weight: 2  # 2% of traffic
@@ -269,7 +269,7 @@ scenarios:
               validUntil: "{{ $isodate(24) }}"
           expect:
             - statusCode: 200
-        think: 2
+      - think: 2
 
   # ===== CONFIRMATION MODULE SCENARIOS (20% of traffic) =====
   - name: "Confirmation - Email verification code"
@@ -289,7 +289,7 @@ scenarios:
               validUntil: "{{ $isodate(1) }}"
           expect:
             - statusCode: 200
-        think: 1
+      - think: 1
 
   - name: "Confirmation - 2FA SMS code"
     weight: 5  # 5% of traffic
@@ -308,7 +308,7 @@ scenarios:
               validUntil: "{{ $isodate(0.083) }}"  # 5 minutes
           expect:
             - statusCode: 200
-        think: 2
+      - think: 2
 
   - name: "Confirmation - Registration verification"
     weight: 3  # 3% of traffic
@@ -327,7 +327,7 @@ scenarios:
               validUntil: "{{ $isodate(168) }}"  # 7 days
           expect:
             - statusCode: 200
-        think: 3
+      - think: 3
 
   - name: "Confirmation - Cancellation verification"
     weight: 2  # 2% of traffic
@@ -345,7 +345,7 @@ scenarios:
               validUntil: "{{ $isodate(1) }}"
           expect:
             - statusCode: 200
-        think: 2
+      - think: 2
 
 # ===== COMPREHENSIVE PERFORMANCE THRESHOLDS =====
 ensure:
